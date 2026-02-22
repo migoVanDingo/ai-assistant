@@ -1,0 +1,378 @@
+sources:
+  - id: google_research
+    type: site
+    name: "Google Research Blog"
+    url: "https://research.google/blog/"
+    tags: ["ai", "research"]
+    weight: 1.2
+
+  - id: google_developers_ai
+    type: site
+    name: "Google Developers AI"
+    url: "https://developers.googleblog.com/"
+    tags: ["ai", "industry"]
+    weight: 1.0
+
+  - id: deepmind_blog
+    type: site
+    name: "Google DeepMind Blog"
+    url: "https://deepmind.google/discover/blog/"
+    tags: ["ai", "research"]
+    weight: 1.3
+
+  - id: meta_ai
+    type: site
+    name: "Meta AI"
+    url: "https://ai.meta.com/blog/"
+    tags: ["ai", "research"]
+    weight: 1.2
+
+  - id: microsoft_research
+    type: site
+    name: "Microsoft Research Blog"
+    url: "https://www.microsoft.com/en-us/research/blog/"
+    tags: ["ai", "research"]
+    weight: 1.1
+
+  - id: openai_news
+    type: rss
+    name: "OpenAI News"
+    url: "https://openai.com/news/rss.xml"
+    tags: ["ai", "industry"]
+    weight: 1.3
+
+  - id: anthropic_news
+    type: site
+    name: "Anthropic News"
+    url: "https://www.anthropic.com/news"
+    tags: ["ai", "safety"]
+    weight: 1.2
+
+  - id: huggingface_blog
+    type: site
+    name: "Hugging Face Blog"
+    url: "https://huggingface.co/blog"
+    tags: ["ai", "open-source"]
+    weight: 1.1
+
+  - id: nvidia_blog_ai
+    type: site
+    name: "NVIDIA Blog"
+    url: "https://blogs.nvidia.com/"
+    tags: ["ai", "hardware"]
+    weight: 1.0
+
+  - id: stability_ai_blog
+    type: site
+    name: "Stability AI Blog"
+    url: "https://stability.ai/news"
+    tags: ["ai", "models"]
+    weight: 1.0
+
+  - id: aws_ml_blog
+    type: rss
+    name: "AWS Machine Learning Blog"
+    url: "https://aws.amazon.com/blogs/machine-learning/feed/"
+    tags: ["ai", "cloud"]
+    weight: 1.0
+
+
+  - id: cloudflare_blog
+    type: rss
+    name: "Cloudflare Blog"
+    url: "https://blog.cloudflare.com/rss/"
+    tags: ["security", "infra"]
+    weight: 1.1
+
+  - id: github_blog
+    type: rss
+    name: "GitHub Blog"
+    url: "https://github.blog/feed/"
+    tags: ["devtools", "industry"]
+    weight: 1.0
+
+  - id: vercel_blog
+    type: rss
+    name: "Vercel Blog"
+    url: "https://vercel.com/atom"
+    tags: ["devtools", "web"]
+    weight: 0.9
+
+  - id: netlify_blog
+    type: site
+    name: "Netlify Blog"
+    url: "https://www.netlify.com/blog/"
+    tags: ["devtools", "web"]
+    weight: 0.9
+
+  - id: databricks_blog
+    type: site
+    name: "Databricks Blog"
+    url: "https://www.databricks.com/blog"
+    tags: ["data", "ai"]
+    weight: 1.0
+
+  - id: snowflake_engineering
+    type: site
+    name: "Snowflake Engineering"
+    url: "https://www.snowflake.com/en/engineering-blog/"
+    tags: ["data", "infra"]
+    weight: 0.9
+
+  - id: stripe_engineering
+    type: rss
+    name: "Stripe Engineering"
+    url: "https://stripe.com/blog/feed.rss"
+    tags: ["engineering", "payments"]
+    weight: 0.9
+
+  - id: uber_engineering
+    type: rss
+    name: "Uber Engineering"
+    url: "https://www.uber.com/en-US/blog/engineering/rss/"
+    tags: ["engineering", "infra"]
+    weight: 0.9
+
+
+  - id: slack_engineering
+    type: rss
+    name: "Slack Engineering"
+    url: "https://slack.engineering/feed"
+    tags: ["engineering", "devtools"]
+    weight: 0.8
+
+  - id: heroku_engineering
+    type: site
+    name: "Heroku Engineering"
+    url: "https://www.heroku.com/blog/"
+    tags: ["cloud", "devtools"]
+    weight: 0.8
+
+  - id: sentry_blog
+    type: rss
+    name: "Sentry Blog"
+    url: "https://blog.sentry.io/feed.xml"
+    tags: ["devtools", "observability"]
+    weight: 0.8
+
+
+  - id: postgres_blog
+    type: rss
+    name: "PostgreSQL News"
+    url: "https://planet.postgresql.org/rss20.xml"
+    tags: ["database", "postgres"]
+    weight: 0.9
+
+  - id: k8s_blog
+    type: rss
+    name: "Kubernetes Blog"
+    url: "https://kubernetes.io/feed.xml"
+    tags: ["kubernetes", "infra"]
+    weight: 1.0
+
+  - id: project_zero
+    type: rss
+    name: "Google Project Zero"
+    url: "https://googleprojectzero.blogspot.com/feeds/posts/default"
+    tags: ["security", "vulnerability"]
+    weight: 1.3
+
+  - id: krebs
+    type: rss
+    name: "Krebs on Security"
+    url: "https://krebsonsecurity.com/feed/"
+    tags: ["security", "threat-intel"]
+    weight: 1.1
+
+  - id: schneier
+    type: rss
+    name: "Schneier on Security"
+    url: "https://www.schneier.com/feed/atom/"
+    tags: ["security", "policy"]
+    weight: 1.0
+
+  - id: cisa_alerts
+    type: rss
+    name: "CISA Alerts"
+    url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+    tags: ["security", "cve"]
+    weight: 1.2
+
+  - id: microsoft_security
+    type: rss
+    name: "Microsoft Security Blog"
+    url: "https://www.microsoft.com/en-us/security/blog/feed/"
+    tags: ["security", "enterprise"]
+    weight: 1.0
+
+  - id: unit42
+    type: site
+    name: "Palo Alto Unit 42"
+    url: "https://unit42.paloaltonetworks.com/"
+    tags: ["security", "threat-intel"]
+    weight: 1.1
+
+  - id: rapid7_blog
+    type: rss
+    name: "Rapid7 Blog"
+    url: "https://www.rapid7.com/blog/rss/"
+    tags: ["security", "vulnerability"]
+    weight: 1.0
+
+  - id: darkreading
+    type: rss
+    name: "Dark Reading"
+    url: "https://www.darkreading.com/rss.xml"
+    tags: ["security", "news"]
+    weight: 0.8
+
+  - id: the_record
+    type: rss
+    name: "The Record"
+    url: "https://therecord.media/feed"
+    tags: ["security", "news"]
+    weight: 0.8
+
+  - id: ars_technica
+    type: rss
+    name: "Ars Technica"
+    url: "https://feeds.arstechnica.com/arstechnica/index"
+    tags: ["tech", "news"]
+    weight: 0.8
+
+  - id: the_verge_tech
+    type: rss
+    name: "The Verge Tech"
+    url: "https://www.theverge.com/rss/tech/index.xml"
+    tags: ["tech", "news"]
+    weight: 0.7
+
+  - id: techcrunch_startups
+    type: rss
+    name: "TechCrunch Startups"
+    url: "https://techcrunch.com/category/startups/feed/"
+    tags: ["startups", "news"]
+    weight: 0.7
+
+  - id: hn_top
+    type: hn
+    name: "Hacker News Top"
+    mode: "top"
+    limit: 30
+    tags: ["devtools", "startups"]
+    weight: 1.0
+
+  - id: hn_new
+    type: hn
+    name: "Hacker News New"
+    mode: "new"
+    limit: 30
+    tags: ["devtools", "fresh"]
+    weight: 0.9
+
+  - id: hn_best
+    type: hn
+    name: "Hacker News Best"
+    mode: "best"
+    limit: 30
+    tags: ["startups", "popular"]
+    weight: 1.0
+
+  - id: hn_ai_keyword
+    type: hn
+    name: "Hacker News AI keyword"
+    mode: "new"
+    keyword: "ai"
+    limit: 80
+    tags: ["ai", "hn"]
+    weight: 1.1
+
+  - id: arxiv_cs_ai
+    type: arxiv
+    name: "arXiv cs.AI"
+    mode: "category"
+    category: "cs.AI"
+    limit: 50
+    tags: ["ai", "papers"]
+    weight: 1.2
+
+  - id: arxiv_cs_lg
+    type: arxiv
+    name: "arXiv cs.LG"
+    mode: "category"
+    category: "cs.LG"
+    limit: 50
+    tags: ["ml", "papers"]
+    weight: 1.2
+
+  - id: arxiv_cs_cl
+    type: arxiv
+    name: "arXiv cs.CL"
+    mode: "category"
+    category: "cs.CL"
+    limit: 40
+    tags: ["nlp", "papers"]
+    weight: 1.1
+
+  - id: arxiv_cs_cv
+    type: arxiv
+    name: "arXiv cs.CV"
+    mode: "category"
+    category: "cs.CV"
+    limit: 40
+    tags: ["vision", "papers"]
+    weight: 1.1
+
+  - id: arxiv_query_agents
+    type: arxiv
+    name: "arXiv query agents"
+    mode: "query"
+    query: "all:agentic OR all:agents"
+    limit: 40
+    tags: ["agents", "papers"]
+    weight: 1.2
+
+  - id: arxiv_query_transformers
+    type: arxiv
+    name: "arXiv query transformers"
+    mode: "query"
+    query: "all:transformer OR all:\"attention mechanism\""
+    limit: 40
+    tags: ["transformers", "papers", "architectures"]
+    weight: 1.2
+
+  - id: arxiv_query_llm
+    type: arxiv
+    name: "arXiv query LLM"
+    mode: "query"
+    query: "all:\"large language model\" OR all:llm OR all:rlm"
+    limit: 40
+    tags: ["llm", "papers", "architectures"]
+    weight: 1.2
+
+  - id: arxiv_query_cnn_rnn
+    type: arxiv
+    name: "arXiv query CNN RNN"
+    mode: "query"
+    query: "all:cnn OR all:\"convolutional neural network\" OR all:rnn OR all:\"recurrent neural network\""
+    limit: 40
+    tags: ["cnn", "rnn", "papers", "architectures"]
+    weight: 1.0
+
+  - id: arxiv_query_mlops
+    type: arxiv
+    name: "arXiv query MLOps"
+    mode: "query"
+    query: "all:mlops OR all:\"machine learning operations\" OR all:\"model serving\""
+    limit: 40
+    tags: ["mlops", "papers", "systems"]
+    weight: 1.0
+
+  - id: arxiv_query_clustering
+    type: arxiv
+    name: "arXiv query clustering"
+    mode: "query"
+    query: "all:clustering OR all:\"mixture model\" OR all:kmeans"
+    limit: 40
+    tags: ["clustering", "papers", "ml"]
+    weight: 1.0
