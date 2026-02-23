@@ -1,0 +1,23 @@
+people:
+  - name: "Jensen Huang"
+    aliases: ["Huang", "Jensen", "NVIDIA CEO"]
+  - name: "Sam Altman"
+    aliases: ["Altman", "Sam"]
+  - name: "Yann LeCun"
+    aliases: ["LeCun", "Yann"]
+
+orgs:
+  - name: "NVIDIA"
+    aliases: ["NVIDIA", "NVDA", "CUDA"]
+  - name: "OpenAI"
+    aliases: ["OpenAI"]
+  - name: "Anthropic"
+    aliases: ["Anthropic", "Claude"]
+  - name: "Google DeepMind"
+    aliases: ["DeepMind"]
+
+products:
+  - name: "Lovable"
+    aliases: ["Lovable.dev", "Lovable"]
+  - name: "ElevenLabs"
+    aliases: ["ElevenLabs", "Eleven Labs"]

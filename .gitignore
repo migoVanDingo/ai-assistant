@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 data/briefbot.db
+.env
+.env*
+data

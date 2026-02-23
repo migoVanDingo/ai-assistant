@@ -1,21 +1,21 @@
 # Morning Brief Collector (`briefbot`)
 
-`briefbot` is a Python ingestion pipeline for collecting daily links from RSS/Atom feeds, Hacker News, and arXiv.
-It does ingestion + normalization + scoring + export only (no LLM usage).
+`briefbot` is a local ingestion + radar + retrieval pipeline.
+It collects from feeds/APIs, stores all items in SQLite, clusters storylines, and exports digest views. It also supports item-level retrieval/citation/LLM summarization for OpenClaw-style workflows.
 
 ## Features
 
-- Config-driven sources from a single `sources.yaml` (supports large lists)
-- Source types:
-  - `rss`: explicit feed URL
-  - `site`: homepage with auto-discovered RSS/Atom links
-  - `hn`: Hacker News (`top`, `new`, `best`) with optional keyword filtering
-  - `arxiv`: category RSS or query via arXiv API fallback
-- SQLite storage for history + dedupe + feed cache
-- URL canonicalization and dedupe across runs
-- ETag / Last-Modified caching for feeds
-- Scoring based on recency, source weight, keywords, and HN metrics
-- Daily exports to JSON + Markdown
+- Source ingestion: `rss`, `site`, `hn`, `arxiv`
+- SQLite history + dedupe (long-lived dataset)
+- Radar layer: clustering, trends, follow-up detection
+- Export views: `highlights`, `balanced`, `trends`, `followups`
+- Retrieval layer:
+  - `find` ranked search
+  - `cite` stable citation block
+  - `get` article fetch/extract/cache
+  - `context` LLM-ready context bundle
+  - `summarize` cached LLM summaries
+- `.env` configuration support
 
 ## Setup
 
@@ -23,81 +23,115 @@ It does ingestion + normalization + scoring + export only (no LLM usage).
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## CLI Usage
+## Environment Variables
+
+- `BRIEFBOT_DB_PATH` (default `data/briefbot.db`)
+- `BRIEFBOT_CACHE_DIR` (default `data/article_cache`)
+- `BRIEFBOT_SUMMARY_DIR` (default `data/summaries`)
+- `BRIEFBOT_LLM_PROVIDER` (default `anthropic`)
+- `BRIEFBOT_LLM_MODEL` (default `claude-haiku-latest`, falls back to 3.5/3 Haiku aliases)
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+
+## Core Commands
 
 ### Collect
 
 ```bash
 python -m briefbot collect
+python -m briefbot collect --refresh-discovery
 ```
 
-Optional flags:
+### Cluster
 
 ```bash
-python -m briefbot collect --config sources.yaml --db data/briefbot.db --dry-run
+python -m briefbot cluster --date today --window-days 14
 ```
 
 ### Export
 
 ```bash
-python -m briefbot export --date today --limit 50
+python -m briefbot export --date today --view highlights --limit 50
+python -m briefbot export --date today --view balanced --limit 50
+python -m briefbot export --date today --view trends --limit 30
+python -m briefbot export --date today --view followups --limit 30
 ```
 
-Optional tag filters:
-
-```bash
-python -m briefbot export --date 2026-02-22 --include-tags ai,security --exclude-tags startups
-```
-
-### Run (collect + export)
+### Run End-to-End
 
 ```bash
 python -m briefbot run --limit 50
 ```
 
-## Output
+`run` performs collect -> cluster -> exports all four views.
 
-- Database: `data/briefbot.db`
-- Daily exports:
-  - `data/daily_digest/YYYY-MM-DD.json`
-  - `data/daily_digest/YYYY-MM-DD.md`
+## Retrieval Commands (OpenClaw-friendly)
 
-JSON output contains:
+### Find
 
-- `date`
-- `count`
-- `items[]` with normalized schema fields (`item_id`, `source_id`, `title`, `url`, `published_at`, `tags`, `metrics`, `score`, etc.)
+```bash
+python -m briefbot find --q "agentic eval framework" --date today --limit 20
+python -m briefbot find --q "cve sandbox" --json
+```
 
-## Source Config (`sources.yaml`)
+### Cite
 
-Each source has:
+```bash
+python -m briefbot cite --item <item_id>
+python -m briefbot cite --item <item_id> --format json
+```
 
-- `id` (unique)
-- `type` (`rss` | `site` | `hn` | `arxiv`)
-- `name`
-- `tags` (list)
-- `weight` (float)
+### Get (fetch + extract + cache article text)
 
-Type-specific fields:
+```bash
+python -m briefbot get --item rank:12 --date today
+python -m briefbot get --item <item_id> --force
+```
+
+### Context (LLM-ready payload)
+
+```bash
+python -m briefbot context --item rank:12 --date today --mode summary
+python -m briefbot context --item rank:12 --date today --mode full --max-chars 12000
+```
+
+### Summarize (LLM + cache)
+
+```bash
+python -m briefbot summarize --item rank:12 --date today
+python -m briefbot summarize --item <item_id> --provider openai --model gpt-4o-mini
+```
+
+## OpenClaw Workflow Example
+
+If the user asks: "summarize item 12 from today",
+
+1. `python -m briefbot summarize --item rank:12 --date today`
+2. optionally `python -m briefbot context --item rank:12 --date today --mode full`
+3. paste output into chat.
+
+## Outputs
+
+- DB: `data/briefbot.db`
+- Digest files: `data/daily_digest/YYYY-MM-DD.<view>.json|md`
+- Article cache: `data/article_cache/<item_id>.txt` and `.llm.txt`
+- Summaries: DB `summaries` table + `data/summaries/<item_id>.<provider>.<model>.md`
+
+## Source Config Fields
+
+Each source supports:
+
+- `id`, `type`, `name`, `tags`, `weight`
+- `category` (`ai_research|ai_industry|devtools|mlops_infra|security|tech_news|aggregator|papers`)
+- `tier` (`1..3`)
+- `max_daily` (optional cap, useful for aggregators)
+
+Type-specific:
 
 - `rss`: `url`
 - `site`: `url`
-- `hn`: `mode` (`top|new|best`), `limit`, optional `keyword`
-- `arxiv`: `mode` (`category|query`), and `category` or `query`, plus `limit`
-
-## Dedupe Rules
-
-- Canonical URL normalization removes common tracking params and fragments.
-- Primary dedupe key: canonical URL.
-- Fallback dedupe key when URL is unavailable: hash of title + source + published time.
-- Duplicates are not reinserted; `last_seen_at` is updated.
-
-## Notes
-
-- Errors are isolated per source; one bad source does not fail whole collection.
-- `site` feed discovery is cached for 7 days in SQLite.
-- `rss` sources that return `404/410` automatically try homepage feed discovery as a fallback.
-- Optional per-source `verify_ssl: false` can be used for feeds with broken certificates.
-- Works on Linux and other Unix-like systems with Python 3.11+.
+- `hn`: `mode`, `limit`, optional `keyword`
+- `arxiv`: `mode`, plus `arxiv_category` or `query`

@@ -28,6 +28,7 @@ def _base_item(
     summary: str | None,
     raw: dict[str, Any],
     metrics: dict[str, Any] | None = None,
+    watch_hits: list[str] | None = None,
 ) -> dict[str, Any]:
     source_id = source["id"]
     source_name = source.get("name", source_id)
@@ -53,6 +54,10 @@ def _base_item(
         "tags": source.get("tags", []),
         "raw": raw,
         "metrics": metrics or {},
+        "source_category": source.get("category"),
+        "source_tier": source.get("tier"),
+        "source_max_daily": source.get("max_daily"),
+        "watch_hits": watch_hits or [],
         "score": 0.0,
     }
 

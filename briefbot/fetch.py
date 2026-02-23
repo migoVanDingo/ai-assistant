@@ -175,7 +175,7 @@ def fetch_arxiv_source(
     limit = int(source.get("limit", 50))
 
     if mode == "category":
-        category = source.get("category")
+        category = source.get("arxiv_category") or source.get("category")
         if not category:
             raise FetchError(f"arXiv category mode requires 'category' for {source['id']}")
         url = _arxiv_category_url(category)
