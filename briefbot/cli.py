@@ -27,6 +27,7 @@ from .llm import summarize as llm_summarize
 from .resolve import format_citation, rank_items_for_query, resolve_date, resolve_item_reference
 from .score import compute_score
 from .store import Store
+from .topics import compute_topic_profiles
 from .watchlist import load_watchlist, match_watchlist
 
 
@@ -167,6 +168,7 @@ def _ensure_summary(
 def run_collect(args: argparse.Namespace) -> int:
     from .discover import discover_site_feeds
     from .fetch import FetchError, fetch_arxiv_source, fetch_hn_source, fetch_rss_feed
+    from .opportunity import compute_opportunity
 
     config = load_config(args.config)
     watchlist = load_watchlist(args.watchlist)
@@ -243,6 +245,18 @@ def run_collect(args: argparse.Namespace) -> int:
                     raw["watch_hits"] = item["watch_hits"]
                     item["raw"] = raw
                 item["score"] = compute_score(item, source_weight=source_weight)
+                opp = compute_opportunity(item)
+                item.update(
+                    {
+                        "score_opportunity": opp.get("score_opportunity"),
+                        "opportunity_reason": opp.get("opportunity_reason"),
+                        "opportunity_tags": opp.get("opportunity_tags", []),
+                    }
+                )
+                if opp.get("components"):
+                    raw = dict(item.get("raw") or {})
+                    raw["opportunity_components"] = opp["components"]
+                    item["raw"] = raw
                 result = store.upsert_item(item, dry_run=args.dry_run)
                 if result.inserted:
                     inserted += 1
@@ -301,6 +315,28 @@ def run_export(args: argparse.Namespace) -> int:
     if args.view in {"trends", "followups"} and count == 0:
         print("No clustered data found for this view. Run `python -m briefbot cluster --date ...` first.")
     return 0
+
+
+def run_topics(args: argparse.Namespace) -> int:
+    topics_date = resolve_date(args.date)
+    store = Store(args.db)
+    stats = compute_topic_profiles(store=store, date_str=topics_date, window_days=args.window_days)
+    store.close()
+    print(
+        f"Computed topic profiles for {topics_date}: items={stats['items']} "
+        f"topics={stats['topics']} window_days={args.window_days}"
+    )
+
+    export_args = argparse.Namespace(
+        db=args.db,
+        config=args.config,
+        date=topics_date,
+        limit=args.limit,
+        view="topics",
+        include_tags="",
+        exclude_tags="",
+    )
+    return run_export(export_args)
 
 
 def run_find(args: argparse.Namespace) -> int:
@@ -501,7 +537,7 @@ def run_collect_and_export(args: argparse.Namespace) -> int:
     )
     run_cluster(cluster_args)
 
-    for view in ["highlights", "balanced", "opportunities", "trends", "followups"]:
+    for view in ["highlights", "balanced", "opportunities", "trends", "followups", "topics"]:
         export_args = argparse.Namespace(
             db=args.db,
             config=args.config,
@@ -538,7 +574,7 @@ def run_morning_brief(args: argparse.Namespace) -> int:
     if cluster_rc != 0:
         return cluster_rc
 
-    for view in ["balanced", "trends", "opportunities", "followups"]:
+    for view in ["balanced", "trends", "opportunities", "followups", "topics"]:
         export_args = argparse.Namespace(
             db=args.db,
             config=args.config,
@@ -582,7 +618,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_p.add_argument(
         "--view",
         default="highlights",
-        choices=["highlights", "balanced", "opportunities", "trends", "followups"],
+        choices=["highlights", "balanced", "opportunities", "trends", "followups", "topics"],
     )
     export_p.add_argument("--include-tags", default="", help="Comma-separated include tags")
     export_p.add_argument("--exclude-tags", default="", help="Comma-separated exclude tags")
@@ -596,6 +632,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--include-tags", default="", help="Comma-separated include tags")
     run_p.add_argument("--exclude-tags", default="", help="Comma-separated exclude tags")
     run_p.set_defaults(func=run_collect_and_export)
+
+    topics_p = subparsers.add_parser("topics", help="Compute and export topic profiles")
+    topics_p.add_argument("--date", default="today", help="Date (YYYY-MM-DD|today|yesterday)")
+    topics_p.add_argument("--window-days", type=int, default=30, help="Window size for topic profiling")
+    topics_p.add_argument("--limit", type=int, default=50, help="Max topics to export")
+    topics_p.set_defaults(func=run_topics)
 
     morning_p = subparsers.add_parser("morning-brief", help="Run morning workflow and compose single daily brief")
     morning_p.add_argument("--date", default="today", help="Date (YYYY-MM-DD|today|yesterday)")

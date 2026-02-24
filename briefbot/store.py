@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS summaries (
     PRIMARY KEY (item_id, provider, model)
 );
 
+CREATE TABLE IF NOT EXISTS topic_profiles (
+    topic_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    count_1d INTEGER DEFAULT 0,
+    count_3d INTEGER DEFAULT 0,
+    count_7d INTEGER DEFAULT 0,
+    count_30d INTEGER DEFAULT 0,
+    momentum REAL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_fetched_at ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_source_id ON items(source_id);
@@ -107,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_items_score ON items(score DESC);
 CREATE INDEX IF NOT EXISTS idx_memberships_cluster_id ON cluster_memberships(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_clusters_trend_score ON clusters(trend_score DESC);
 CREATE INDEX IF NOT EXISTS idx_summaries_item_id ON summaries(item_id);
+CREATE INDEX IF NOT EXISTS idx_topic_profiles_momentum ON topic_profiles(momentum DESC, last_seen_at DESC);
 """
 
 
@@ -543,6 +559,18 @@ class Store:
         ).fetchone()
         return row["cluster_id"] if row else None
 
+    def get_cluster(self, cluster_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM clusters WHERE cluster_id = ?",
+            (cluster_id,),
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        data["categories"] = json.loads(data.get("categories") or "[]")
+        data["top_tokens"] = json.loads(data.get("top_tokens") or "[]")
+        return data
+
     def get_followup_candidates(self, date_str: str) -> list[dict[str, Any]]:
         end_dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         since_24h = (end_dt - timedelta(days=1)).isoformat()
@@ -584,6 +612,68 @@ class Store:
             (cutoff_date,),
         )
         self.conn.commit()
+
+    def upsert_topic_profile(self, profile: dict[str, Any]) -> None:
+        now = utc_now_iso()
+        self.conn.execute(
+            """
+            INSERT INTO topic_profiles(
+                topic_id, name, kind, first_seen_at, last_seen_at,
+                count_1d, count_3d, count_7d, count_30d, momentum,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(topic_id) DO UPDATE SET
+                name=excluded.name,
+                kind=excluded.kind,
+                first_seen_at=excluded.first_seen_at,
+                last_seen_at=excluded.last_seen_at,
+                count_1d=excluded.count_1d,
+                count_3d=excluded.count_3d,
+                count_7d=excluded.count_7d,
+                count_30d=excluded.count_30d,
+                momentum=excluded.momentum,
+                updated_at=excluded.updated_at
+            """,
+            (
+                profile["topic_id"],
+                profile["name"],
+                profile["kind"],
+                profile.get("first_seen_at"),
+                profile.get("last_seen_at"),
+                int(profile.get("count_1d", 0)),
+                int(profile.get("count_3d", 0)),
+                int(profile.get("count_7d", 0)),
+                int(profile.get("count_30d", 0)),
+                float(profile.get("momentum", 0.0)),
+                profile.get("created_at") or now,
+                now,
+            ),
+        )
+        self.conn.commit()
+
+    def fetch_top_topics(
+        self,
+        date_str: str,
+        limit: int = 50,
+        kind: str | None = None,
+    ) -> list[dict[str, Any]]:
+        where = ["date(COALESCE(last_seen_at, created_at)) <= date(?)"]
+        params: list[Any] = [date_str]
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
+        params.append(limit)
+        rows = self.conn.execute(
+            f"""
+            SELECT *
+            FROM topic_profiles
+            WHERE {' AND '.join(where)}
+            ORDER BY momentum DESC, last_seen_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def get_summary(self, item_id: str, provider: str | None = None, model: str | None = None) -> dict[str, Any] | None:
         if provider and model:

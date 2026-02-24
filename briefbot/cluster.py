@@ -60,6 +60,29 @@ STOPWORDS = {
     "can",
     "using",
     "use",
+    "after",
+    "before",
+    "during",
+    "while",
+    "who",
+    "whom",
+    "whose",
+    "what",
+    "which",
+    "when",
+    "where",
+    "but",
+    "not",
+    "one",
+    "first",
+    "self",
+    "time",
+    "year",
+    "years",
+    "day",
+    "days",
+    "long",
+    "fine",
 }
 
 
@@ -146,8 +169,11 @@ def _cluster_label(cluster: ClusterState, member_items: list[dict[str, Any]]) ->
     for item in member_items:
         for hit in item.get("watch_hits") or []:
             watch_counter[hit] += 1
-    if watch_counter:
-        return watch_counter.most_common(1)[0][0]
+    if watch_counter and member_items:
+        top_hit, top_count = watch_counter.most_common(1)[0]
+        dominance = top_count / max(1, len(member_items))
+        if top_count >= 2 and dominance >= 0.60:
+            return top_hit
 
     top = [tok for tok, _ in cluster.token_counts.most_common(3) if not tok.startswith(("domain:", "cat:", "tag:"))]
     if top:

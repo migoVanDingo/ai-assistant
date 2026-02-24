@@ -41,7 +41,7 @@ def _sort_opportunities(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         items,
         key=lambda x: (
-            float(x.get("score_opportunity") if x.get("score_opportunity") is not None else x.get("score", 0.0)),
+            float(x.get("score_opportunity") if x.get("score_opportunity") is not None else 0.0),
             float(x.get("score", 0.0)),
             x.get("published_at") or "",
         ),
@@ -314,6 +314,29 @@ def _write_followups_markdown(path: Path, date_str: str, data: list[dict[str, An
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_topics_markdown(path: Path, date_str: str, topics: list[dict[str, Any]]) -> None:
+    lines = [f"# Morning Brief {date_str} (topics)", ""]
+    if not topics:
+        lines.append("_No topics found._")
+        lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return
+
+    for idx, t in enumerate(topics, start=1):
+        lines.append(
+            f"{idx}. **{t.get('name')}** "
+            f"| kind=`{t.get('kind')}` "
+            f"| momentum=`{t.get('momentum')}` "
+            f"| 1d=`{t.get('count_1d')}` "
+            f"| 3d=`{t.get('count_3d')}` "
+            f"| 7d=`{t.get('count_7d')}` "
+            f"| 30d=`{t.get('count_30d')}`"
+        )
+        lines.append(f"   Last seen: `{t.get('last_seen_at')}`")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _write_opportunities_markdown(path: Path, date_str: str, items: list[dict[str, Any]]) -> None:
     lines = [f"# Morning Brief {date_str} (opportunities)", ""]
     for idx, item in enumerate(items, start=1):
@@ -352,7 +375,10 @@ def export_daily_digest(
     md_path = out_path / f"{date_str}.{view}.md"
 
     if view in {"highlights", "balanced", "opportunities"}:
-        items = store.get_items_for_date(date_str, limit=limit * 6)
+        if view == "opportunities":
+            items = store.get_items_for_date_by_view(date_str, limit=limit * 6, view="opportunities")
+        else:
+            items = store.get_items_for_date(date_str, limit=limit * 6)
         items = _apply_tag_filters(items, include_tags=include_tags, exclude_tags=exclude_tags)
         if view == "highlights":
             selected = _select_highlights(items, limit)
@@ -400,5 +426,17 @@ def export_daily_digest(
         json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
         _write_followups_markdown(md_path, date_str, followups)
         return json_path, md_path, len(followups)
+
+    if view == "topics":
+        topics = store.fetch_top_topics(date_str=date_str, limit=limit)
+        payload = {
+            "date": date_str,
+            "view": view,
+            "count": len(topics),
+            "topics": topics,
+        }
+        json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+        _write_topics_markdown(md_path, date_str, topics)
+        return json_path, md_path, len(topics)
 
     raise ValueError(f"Unsupported export view: {view}")
