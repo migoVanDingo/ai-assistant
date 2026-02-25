@@ -22,8 +22,8 @@ LOCKFILE="$LOG_DIR/nightly.lock"
 
 notify() {
   local msg="$1"
-  if [ -n "$TELEGRAM_TARGET" ]; then
-    openclaw message send --channel telegram --target "$TELEGRAM_TARGET" --message "$msg" >/dev/null || true
+  if [ -n "${TELEGRAM_TARGET:-}" ]; then
+    openclaw message send --channel telegram --target "$TELEGRAM_TARGET" --message "$msg" >/dev/null 2>&1 || true
   fi
 }
 
@@ -54,7 +54,7 @@ run() {
     in==1 {print}
   ' "$brief_path" | sed '/^\s*$/d' | head -n 12)"
 
-  if [ -z "$moves" ]; then
+  if [ -z "${moves:-}" ]; then
     moves="(No Today’s Moves section found.)"
   fi
 
@@ -63,21 +63,15 @@ run() {
 $moves
 
 File: $brief_path"
+
   echo "OK: wrote $brief_path"
 }
 
-# Prevent overlap
-if command -v flock >/dev/null 2>&1; then
-  flock -n "$LOCKFILE" bash -lc run >>"$LOGFILE" 2>&1 || {
-    notify "⚠️ Briefbot nightly failed for $DATE_STR. See log: $LOGFILE"
-    exit 1
-  }
-else
-  if [ -e "$LOCKFILE" ]; then exit 0; fi
-  touch "$LOCKFILE"
-  trap 'rm -f "$LOCKFILE"' EXIT
-  run >>"$LOGFILE" 2>&1 || {
-    notify "⚠️ Briefbot nightly failed for $DATE_STR. See log: $LOGFILE"
-    exit 1
-  }
-fi
+# Prevent overlap (preferred: fd-lock pattern, no subshell)
+{
+  flock -n 9 || exit 1
+  run
+} 9>"$LOCKFILE" >>"$LOGFILE" 2>&1 || {
+  notify "⚠️ Briefbot nightly failed for $DATE_STR. See log: $LOGFILE"
+  exit 1
+}
