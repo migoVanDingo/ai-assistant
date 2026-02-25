@@ -4,7 +4,7 @@ set -euo pipefail
 export TZ="America/New_York"
 
 BRIEFBOT_DIR="${BRIEFBOT_DIR:-$HOME/briefbot}"
-BRIEF_DIR="${BRIEFBOT_BRIEF_DIR:-$BRIEFBOT_DIR/data/briefs}"
+BRIEF_DIR="${BRIEFBOT_BRIEF_DIR:-$HOME/vaults/briefbot/Daily}"
 LOG_DIR="${BRIEFBOT_LOG_DIR:-$BRIEFBOT_DIR/data/logs}"
 DB_PATH="${BRIEFBOT_DB_PATH:-$BRIEFBOT_DIR/data/briefbot.db}"
 
@@ -14,6 +14,7 @@ DB_PATH="${BRIEFBOT_DB_PATH:-$BRIEFBOT_DIR/data/briefbot.db}"
 TELEGRAM_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-}"
 
 mkdir -p "$LOG_DIR"
+mkdir -p "$BRIEF_DIR"
 
 DATE_STR="$(date +%F)"
 LOGFILE="$LOG_DIR/nightly.$DATE_STR.log"
