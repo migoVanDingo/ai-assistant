@@ -5,7 +5,7 @@ export TZ="America/New_York"
 
 BRIEFBOT_DIR="${BRIEFBOT_DIR:-$HOME/briefbot}"
 BRIEF_DIR="${BRIEFBOT_BRIEF_DIR:-$HOME/vaults/briefbot/Daily}"
-LOG_DIR="${BRIEFBOT_LOG_DIR:-$BRIEFBOT_DIR/data/logs}"
+LOG_DIR="${BRIEFBOT_LOG_DIR:-$HOME/Projects/ai-assistant/data/logs}"
 DB_PATH="${BRIEFBOT_DB_PATH:-$BRIEFBOT_DIR/data/briefbot.db}"
 
 # Telegram target examples:
