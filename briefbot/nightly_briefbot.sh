@@ -3,7 +3,7 @@ set -euo pipefail
 
 export TZ="America/New_York"
 
-PROJECT_DIR="~/Projects/ai-assistant}"
+PROJECT_DIR="~/Projects/ai-assistant"
 BRIEFBOT_DIR=$PROJECT_DIR
 DATA_DIR="$PROJECT_DIR/data"
 # Force the brief output into the project data directory to avoid inherited env ambiguity.
