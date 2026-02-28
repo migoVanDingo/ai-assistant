@@ -136,12 +136,13 @@ run() {
   run_step "export followups" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view followups --limit 50
   run_step "export topics" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view topics --limit 50
   run_step "compose brief" python3 - <<PY
+import os
 try:
     from dotenv import load_dotenv
 except Exception:
     load_dotenv = None
 if load_dotenv:
-    load_dotenv()
+    load_dotenv(dotenv_path=os.getenv("BRIEFBOT_ENV_FILE", "${ENV_FILE}"))
 from briefbot.brief import write_daily_brief
 path = write_daily_brief(
     date_str="${DATE_STR}",

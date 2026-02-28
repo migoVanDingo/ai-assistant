@@ -21,6 +21,16 @@ from .store import Store
 from .util import ensure_dir
 
 
+def _load_env_file() -> None:
+    if not load_dotenv:
+        return
+    env_path = os.getenv("BRIEFBOT_ENV_FILE", ".env")
+    try:
+        load_dotenv(dotenv_path=env_path)
+    except Exception:
+        pass
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -349,8 +359,7 @@ def write_daily_brief(
 
         enable_exec_summary = exec_summary_enabled()
     if enable_exec_summary and db_path:
-        if load_dotenv:
-            load_dotenv()
+        _load_env_file()
         try:
             from .executive import build_exec_summaries
 
