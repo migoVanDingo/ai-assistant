@@ -10,7 +10,14 @@ export default function BriefPage({ briefs, selectedDate, markdown, metrics, onS
   return (
     <Stack spacing={3}>
       {!isMobile ? <MetricsCards metrics={metrics} /> : null}
-      <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 4 }}>
+      <Paper
+        sx={{
+          p: { xs: 2.5, md: 2.5 },
+          pt: { xs: 3, md: 2.5 },
+          minHeight: { xs: 132, md: 'auto' },
+          borderRadius: 4,
+        }}
+      >
         <Typography variant="h5" sx={{ mb: 0.5 }}>Morning Brief Archive</Typography>
         <Typography color="text.secondary">
           Briefs are loaded directly from the markdown files in the briefs directory. Use the menu to switch views on mobile.
