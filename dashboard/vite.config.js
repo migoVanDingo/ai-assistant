@@ -7,6 +7,7 @@ const allowedHosts = [
 
 export default defineConfig({
   plugins: [react()],
+  base: "/briefs/",
   server: {
     host: '0.0.0.0',
     port: 5173,
