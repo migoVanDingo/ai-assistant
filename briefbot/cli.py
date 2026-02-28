@@ -586,7 +586,12 @@ def run_morning_brief(args: argparse.Namespace) -> int:
         )
         run_export(export_args)
 
-    brief_path = write_daily_brief(date_str=brief_date)
+    brief_path = write_daily_brief(
+        date_str=brief_date,
+        db_path=args.db,
+        enable_exec_summary=not args.no_exec_summary,
+        exec_summary_model=args.exec_summary_model,
+    )
     print(f"Daily brief for {brief_date} written: {brief_path}")
     print(f"python -m briefbot summarize --item rank:opportunities:3 --date {brief_date}")
     print(f"python -m briefbot summarize --item rank:balanced:12 --date {brief_date}")
@@ -645,6 +650,8 @@ def build_parser() -> argparse.ArgumentParser:
     morning_p.add_argument("--limit", type=int, default=50, help="Max items per exported view")
     morning_p.add_argument("--dry-run", action="store_true", help="Collect dry-run mode")
     morning_p.add_argument("--refresh-discovery", action="store_true", help="Ignore cached site discovery")
+    morning_p.add_argument("--no-exec-summary", action="store_true", help="Disable LLM executive summary sections")
+    morning_p.add_argument("--exec-summary-model", default=None, help="Override model for executive summaries")
     morning_p.set_defaults(func=run_morning_brief)
 
     find_p = subparsers.add_parser("find", help="Find items by query")

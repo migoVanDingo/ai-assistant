@@ -102,6 +102,45 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def fetch_article_for_url(
+    url: str,
+    max_bytes: int = 2_000_000,
+    max_chars: int = 12_000,
+    timeout: int = 20,
+) -> dict[str, Any]:
+    if not url:
+        return {
+            "url": "",
+            "text": "",
+            "llm_text": "",
+            "content_hash": _hash_text(""),
+            "snippet": "",
+            "cached": False,
+        }
+
+    target_url = _arxiv_abs_url(url)
+    resp = requests.get(
+        target_url,
+        timeout=timeout,
+        headers={"User-Agent": "briefbot/1.0"},
+        allow_redirects=True,
+    )
+    resp.raise_for_status()
+
+    content = resp.content[:max_bytes]
+    html = content.decode(resp.encoding or "utf-8", errors="ignore")
+    text = extract_text(html, target_url)
+    llm_text = text[:max_chars]
+    return {
+        "url": target_url,
+        "text": text,
+        "llm_text": llm_text,
+        "content_hash": _hash_text(llm_text),
+        "snippet": text[:240],
+        "cached": False,
+    }
+
+
 def get_article_for_item(
     item: dict[str, Any],
     cache_dir: str | Path = "data/article_cache",

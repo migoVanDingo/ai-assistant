@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS topic_profiles (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS exec_summary_cache (
+    cache_key TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    excerpt_hash TEXT NOT NULL,
+    excerpt_text TEXT,
+    stage1_json TEXT,
+    provider TEXT,
+    model TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_fetched_at ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at);
 CREATE INDEX IF NOT EXISTS idx_items_source_id ON items(source_id);
@@ -123,6 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_memberships_cluster_id ON cluster_memberships(clu
 CREATE INDEX IF NOT EXISTS idx_clusters_trend_score ON clusters(trend_score DESC);
 CREATE INDEX IF NOT EXISTS idx_summaries_item_id ON summaries(item_id);
 CREATE INDEX IF NOT EXISTS idx_topic_profiles_momentum ON topic_profiles(momentum DESC, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exec_summary_cache_url_hash ON exec_summary_cache(url, excerpt_hash);
 """
 
 
@@ -674,6 +687,42 @@ class Store:
             tuple(params),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_exec_summary_cache(self, cache_key: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM exec_summary_cache WHERE cache_key = ?",
+            (cache_key,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_exec_summary_cache(
+        self,
+        cache_key: str,
+        url: str,
+        excerpt_hash: str,
+        excerpt_text: str,
+        stage1_json: str,
+        provider: str,
+        model: str,
+    ) -> None:
+        now = utc_now_iso()
+        self.conn.execute(
+            """
+            INSERT INTO exec_summary_cache(
+                cache_key, url, excerpt_hash, excerpt_text, stage1_json, provider, model, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+              url=excluded.url,
+              excerpt_hash=excluded.excerpt_hash,
+              excerpt_text=excluded.excerpt_text,
+              stage1_json=excluded.stage1_json,
+              provider=excluded.provider,
+              model=excluded.model,
+              updated_at=excluded.updated_at
+            """,
+            (cache_key, url, excerpt_hash, excerpt_text, stage1_json, provider, model, now, now),
+        )
+        self.conn.commit()
 
     def get_summary(self, item_id: str, provider: str | None = None, model: str | None = None) -> dict[str, Any] | None:
         if provider and model:

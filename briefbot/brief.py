@@ -1,4 +1,4 @@
-"""Compose a single Obsidian-friendly daily brief from exported JSON views."""
+"""Compose a single daily brief from exported JSON views."""
 
 from __future__ import annotations
 
@@ -54,6 +54,14 @@ def _render_items_section(lines: list[str], title: str, view: str, payload: dict
     lines.append("")
 
 
+def _limit_payload_items(payload: dict[str, Any] | None, key: str, limit: int) -> dict[str, Any] | None:
+    if not payload:
+        return payload
+    limited = dict(payload)
+    limited[key] = list(payload.get(key) or [])[:limit]
+    return limited
+
+
 def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -80,27 +88,12 @@ def _is_recent_paper(item: dict[str, Any], brief_date: datetime) -> bool:
     return pub_dt >= (brief_date - timedelta(days=7))
 
 
-def _render_balanced_section(
-    lines: list[str],
-    payload: dict[str, Any] | None,
+def _load_high_signal_paper_ids(
+    items: list[dict[str, Any]],
+    *,
     date_str: str,
     db_path: str | Path | None,
-    ctx: dict[str, Any] | None = None,
-) -> None:
-    lines.append("## Balanced")
-    if not payload:
-        lines.append("_No export found for `balanced` view._")
-        lines.append("")
-        return
-
-    items = payload.get("items") or []
-    if not items:
-        lines.append("_No items._")
-        lines.append("")
-        return
-
-    item_rank = {it.get("item_id"): idx for idx, it in enumerate(items, start=1)}
-
+) -> set[str]:
     brief_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     high_signal_ids: set[str] = set()
     store: Store | None = None
@@ -110,25 +103,71 @@ def _render_balanced_section(
     except Exception:
         store = None
 
-    if store:
-        try:
-            for item in items:
-                if not _is_paper_item(item) or not _is_recent_paper(item, brief_date):
-                    continue
-                iid = item.get("item_id")
-                if not iid:
-                    continue
-                cid = store.get_cluster_for_item(iid)
-                if not cid:
-                    continue
-                cluster = store.get_cluster(cid)
-                if cluster and int(cluster.get("sources_count") or 0) >= 2:
-                    high_signal_ids.add(iid)
-        finally:
-            store.close()
+    if not store:
+        return high_signal_ids
 
+    try:
+        for item in items:
+            if not _is_paper_item(item) or not _is_recent_paper(item, brief_date):
+                continue
+            iid = item.get("item_id")
+            if not iid:
+                continue
+            cid = store.get_cluster_for_item(iid)
+            if not cid:
+                continue
+            cluster = store.get_cluster(cid)
+            if cluster and int(cluster.get("sources_count") or 0) >= 2:
+                high_signal_ids.add(iid)
+    finally:
+        store.close()
+    return high_signal_ids
+
+
+def _split_balanced_items(
+    payload: dict[str, Any] | None,
+    *,
+    date_str: str,
+    db_path: str | Path | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    items = list((payload or {}).get("items") or [])
+    if not items:
+        return [], [], {}
+    item_rank = {it.get("item_id"): idx for idx, it in enumerate(items, start=1)}
+    high_signal_ids = _load_high_signal_paper_ids(items, date_str=date_str, db_path=db_path)
     top_links = [it for it in items if it.get("item_id") not in high_signal_ids and not _is_paper_item(it)]
     high_signal = [it for it in items if it.get("item_id") in high_signal_ids]
+    return top_links, high_signal, item_rank
+
+
+def _render_exec_summary_section(lines: list[str], title: str, text: str) -> None:
+    lines.append(f"## {title}")
+    if text.strip():
+        lines.extend(text.strip().splitlines())
+    else:
+        lines.append("_Summary unavailable._")
+    lines.append("")
+
+
+def _render_balanced_section(
+    lines: list[str],
+    payload: dict[str, Any] | None,
+    date_str: str,
+    db_path: str | Path | None,
+    limit: int = 10,
+    ctx: dict[str, Any] | None = None,
+) -> None:
+    lines.append("## Top Links")
+    if not payload:
+        lines.append("_No export found for `balanced` view._")
+        lines.append("")
+        return
+
+    top_links, high_signal, item_rank = _split_balanced_items(payload, date_str=date_str, db_path=db_path)
+    if not top_links and not high_signal:
+        lines.append("_No items._")
+        lines.append("")
+        return
 
     if ctx is not None:
         read_item = None
@@ -143,27 +182,10 @@ def _render_balanced_section(
         ctx["read_item"] = read_item
         ctx["balanced_order_items"] = balanced_order_items
 
-    lines.append("")
-    lines.append("### Top Links")
     if not top_links:
         lines.append("_No top links._")
     else:
-        for display_idx, item in enumerate(top_links, start=1):
-            raw_idx = item_rank.get(item.get("item_id"), display_idx)
-            title = item.get("title") or "(untitled)"
-            url = item.get("url") or ""
-            source = item.get("source_name") or ""
-            score = item.get("score")
-            tags = ", ".join(item.get("tags") or [])
-            lines.append(f"{display_idx}. [{title}]({url})")
-            lines.append(f"   Source: `{source}` | score: `{score}`")
-            lines.append(f"   Tags: `{tags}`")
-            lines.append(f"   Ref: rank:balanced:{raw_idx} | item: {item.get('item_id')}")
-
-    if high_signal:
-        lines.append("")
-        lines.append("### High-Signal Papers")
-        for display_idx, item in enumerate(high_signal, start=1):
+        for display_idx, item in enumerate(top_links[:limit], start=1):
             raw_idx = item_rank.get(item.get("item_id"), display_idx)
             title = item.get("title") or "(untitled)"
             url = item.get("url") or ""
@@ -177,7 +199,12 @@ def _render_balanced_section(
     lines.append("")
 
 
-def _render_trends_section(lines: list[str], payload: dict[str, Any] | None, ctx: dict[str, Any] | None = None) -> None:
+def _render_trends_section(
+    lines: list[str],
+    payload: dict[str, Any] | None,
+    limit: int = 5,
+    ctx: dict[str, Any] | None = None,
+) -> None:
     lines.append("## Trends")
     if not payload:
         lines.append("_No export found for `trends` view._")
@@ -193,7 +220,7 @@ def _render_trends_section(lines: list[str], payload: dict[str, Any] | None, ctx
     if ctx is not None:
         ctx["track_cluster"] = clusters[0]
 
-    for idx, c in enumerate(clusters[:15], start=1):
+    for idx, c in enumerate(clusters[:limit], start=1):
         label = c.get("label") or "general update"
         rep_title = c.get("representative_title") or label
         rep_url = c.get("representative_url") or ""
@@ -274,7 +301,7 @@ def _render_followups_section(lines: list[str], payload: dict[str, Any] | None) 
         lines.append("")
         return
 
-    for idx, c in enumerate(clusters, start=1):
+    for idx, c in enumerate(clusters[:5], start=1):
         label = c.get("label") or "general update"
         lines.append(f"{idx}. **{label}**")
         new_items = c.get("new_items") or []
@@ -287,56 +314,13 @@ def _render_followups_section(lines: list[str], payload: dict[str, Any] | None) 
     lines.append("")
 
 
-def _render_topics_section(lines: list[str], payload: dict[str, Any] | None) -> None:
-    lines.append("## Topics")
-    if not payload:
-        lines.append("_No export found for `topics` view._")
-        lines.append("")
-        return
-
-    topics = payload.get("topics") or []
-    if not topics:
-        lines.append("_No topics._")
-        lines.append("")
-        return
-
-    def _to_int(value: Any) -> int:
-        try:
-            return int(value)
-        except Exception:
-            return 0
-
-    for idx, topic in enumerate(topics, start=1):
-        name = topic.get("name") or "(unnamed)"
-        kind = topic.get("kind") or "token"
-        momentum = topic.get("momentum")
-        c1 = _to_int(topic.get("count_1d"))
-        c3 = _to_int(topic.get("count_3d"))
-        c7 = _to_int(topic.get("count_7d"))
-        c30 = _to_int(topic.get("count_30d"))
-        last_seen = topic.get("last_seen_at")
-        topic_id = topic.get("topic_id") or f"topic:{name}"
-        badges: list[str] = []
-        if c7 > 0:
-            baseline = (c7 / 7.0) * 2.5
-            if c1 >= 2 and c1 >= baseline:
-                badges.append("🔥")
-        if c30 <= 2 and c1 >= 1:
-            badges.append("🆕")
-        badge_text = f" {' '.join(badges)}" if badges else ""
-        lines.append(f"{idx}. **{name}**{badge_text}")
-        lines.append(
-            f"   Kind: `{kind}` | momentum: `{momentum}` | 1d/3d/7d/30d: `{c1}/{c3}/{c7}/{c30}` | last_seen: `{last_seen}`"
-        )
-        lines.append(f"   Ref: rank:topics:{idx} | item: {topic_id}")
-    lines.append("")
-
-
 def write_daily_brief(
     date_str: str,
     digest_dir: str | Path = "data/daily_digest",
     out_dir: str | Path | None = None,
     db_path: str | Path | None = None,
+    enable_exec_summary: bool | None = None,
+    exec_summary_model: str | None = None,
 ) -> Path:
     digest_path = Path(digest_dir)
     if out_dir is None:
@@ -349,15 +333,51 @@ def write_daily_brief(
     trends = _load_json(digest_path / f"{date_str}.trends.json")
     opportunities = _load_json(digest_path / f"{date_str}.opportunities.json")
     followups = _load_json(digest_path / f"{date_str}.followups.json")
-    topics = _load_json(digest_path / f"{date_str}.topics.json")
     ctx: dict[str, Any] = {}
 
+    top_links, _, _ = _split_balanced_items(balanced, date_str=date_str, db_path=db_path)
+    trend_clusters = list((trends or {}).get("clusters") or [])
+    exec_summary: dict[str, Any] | None = None
+    if enable_exec_summary is None:
+        from .executive import exec_summary_enabled
+
+        enable_exec_summary = exec_summary_enabled()
+    if enable_exec_summary and db_path:
+        try:
+            from .executive import build_exec_summaries
+
+            store = Store(db_path)
+            try:
+                exec_summary = build_exec_summaries(
+                    store=store,
+                    top_link_items=top_links,
+                    trend_clusters=trend_clusters,
+                    model=exec_summary_model,
+                )
+            finally:
+                store.close()
+        except Exception:
+            exec_summary = {
+                "exec_summary_top_links": "",
+                "exec_summary_trends": "",
+            }
+
     lines: list[str] = [f"# Morning Brief {date_str}", ""]
-    _render_balanced_section(lines, balanced, date_str=date_str, db_path=db_path, ctx=ctx)
-    _render_trends_section(lines, trends, ctx=ctx)
-    _render_items_section(lines, "Opportunities", "opportunities", opportunities)
+    if enable_exec_summary:
+        _render_exec_summary_section(
+            lines,
+            "What’s going on",
+            (exec_summary or {}).get("exec_summary_top_links") or "",
+        )
+        _render_exec_summary_section(
+            lines,
+            "What’s trending",
+            (exec_summary or {}).get("exec_summary_trends") or "",
+        )
+    _render_balanced_section(lines, balanced, date_str=date_str, db_path=db_path, limit=10, ctx=ctx)
+    _render_trends_section(lines, trends, limit=5, ctx=ctx)
+    _render_items_section(lines, "Opportunities", "opportunities", _limit_payload_items(opportunities, "items", 5))
     _render_followups_section(lines, followups)
-    _render_topics_section(lines, topics)
     _render_todays_moves_section(lines, ctx, opportunities_payload=opportunities)
 
     out_path = Path(brief_dir) / f"{date_str}.daily.md"

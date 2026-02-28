@@ -82,7 +82,7 @@ def _prompt(metadata: dict[str, Any], text: str, max_words: int = 400) -> str:
     )
 
 
-def _anthropic_summarize(prompt: str, model: str) -> str:
+def _anthropic_summarize(prompt: str, model: str, max_tokens: int = 900, temperature: float = 0.2) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
@@ -100,8 +100,8 @@ def _anthropic_summarize(prompt: str, model: str) -> str:
             },
             json={
                 "model": candidate_model,
-                "max_tokens": 900,
-                "temperature": 0.2,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
@@ -123,7 +123,7 @@ def _anthropic_summarize(prompt: str, model: str) -> str:
     raise RuntimeError("Anthropic request failed. " + " | ".join(errors[:4]))
 
 
-def _openai_summarize(prompt: str, model: str) -> str:
+def _openai_summarize(prompt: str, model: str, max_tokens: int = 900, temperature: float = 0.2) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
@@ -137,8 +137,8 @@ def _openai_summarize(prompt: str, model: str) -> str:
         },
         json={
             "model": _normalize_model("openai", model),
-            "temperature": 0.2,
-            "max_tokens": 900,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         },
     )
@@ -153,6 +153,21 @@ def _openai_summarize(prompt: str, model: str) -> str:
     return msg
 
 
+def generate_text(
+    prompt: str,
+    provider: str = "anthropic",
+    model: str = "claude-haiku-latest",
+    max_tokens: int = 900,
+    temperature: float = 0.2,
+) -> str:
+    provider = (provider or "anthropic").lower()
+    if provider == "anthropic":
+        return _anthropic_summarize(prompt, model=model, max_tokens=max_tokens, temperature=temperature)
+    if provider == "openai":
+        return _openai_summarize(prompt, model=model, max_tokens=max_tokens, temperature=temperature)
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
 def summarize(
     text: str,
     metadata: dict[str, Any],
@@ -160,11 +175,5 @@ def summarize(
     model: str = "claude-haiku-latest",
     max_words: int = 400,
 ) -> str:
-    provider = (provider or "anthropic").lower()
     prompt = _prompt(metadata=metadata, text=text, max_words=max_words)
-
-    if provider == "anthropic":
-        return _anthropic_summarize(prompt, model=model)
-    if provider == "openai":
-        return _openai_summarize(prompt, model=model)
-    raise ValueError(f"Unsupported provider: {provider}")
+    return generate_text(prompt=prompt, provider=provider, model=model, max_tokens=900, temperature=0.2)
