@@ -34,6 +34,7 @@ export BRIEFBOT_SUMMARY_DIR="$SUMMARY_DIR"
 # - username: @myhandle
 MESSAGE_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-${OPENCLAW_TELEGRAM_TARGET:-${TELEGRAM_TARGET:-}}}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
+DASHBOARD_BRIEFS_URL="${DASHBOARD_BRIEFS_URL:-https://node1.tailb058fe.ts.net/briefs}"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$BRIEF_DIR"
@@ -163,24 +164,9 @@ PY
     return 1
   fi
 
-  # Extract Today’s Moves (if present) for the notification body
-  local moves
-  moves="$(awk '
-    BEGIN{inside=0}
-    /^## Today/ {inside=1; next}
-    inside==1 && /^## / {exit}
-    inside==1 {print}
-  ' "$brief_path" | sed '/^\s*$/d' | head -n 12)"
+  notify "✅ Good morning Miguel! Your daily brief is ready to view.
 
-  if [ -z "${moves:-}" ]; then
-    moves="(No Today’s Moves section found.)"
-  fi
-
-  notify "✅ New Briefbot brief is ready: $DATE_STR
-
-$moves
-
-File: $brief_path"
+$DASHBOARD_BRIEFS_URL"
 
   log "OK: wrote $brief_path"
 }
