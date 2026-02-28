@@ -6,7 +6,8 @@ export TZ="America/New_York"
 PROJECT_DIR="${PROJECT_DIR:-/home/node1/Projects/ai-assistant}"
 BRIEFBOT_DIR="${BRIEFBOT_DIR:-$PROJECT_DIR}"
 DATA_DIR="${BRIEFBOT_DATA_DIR:-$PROJECT_DIR/data}"
-BRIEF_DIR="${BRIEFBOT_BRIEF_DIR:-$DATA_DIR/briefs}"
+# Force the brief output into the project data directory to avoid inherited env ambiguity.
+BRIEF_DIR="$DATA_DIR/briefs"
 LOG_DIR="${BRIEFBOT_LOG_DIR:-$DATA_DIR/logs}"
 DB_PATH="${BRIEFBOT_DB_PATH:-$DATA_DIR/briefbot.db}"
 CACHE_DIR="${BRIEFBOT_CACHE_DIR:-$DATA_DIR/article_cache}"
@@ -87,6 +88,8 @@ run() {
   cd "$BRIEFBOT_DIR"
 
   log "=== Briefbot nightly run for $DATE_STR ==="
+  log "pwd: $(pwd)"
+  log "python3: $(command -v python3 || echo 'not found')"
   log "Project dir: $PROJECT_DIR"
   log "Runtime dir: $BRIEFBOT_DIR"
   log "DB path: $DB_PATH"
@@ -108,6 +111,10 @@ run() {
   run_step "compose brief" python3 -m briefbot --db "$DB_PATH" morning-brief --date "$DATE_STR" --window-days 14 --limit 50
 
   local brief_path="$BRIEF_DIR/$DATE_STR.daily.md"
+  log "Listing brief dir after compose:"
+  ls -lah "$BRIEF_DIR" || true
+  log "Looking for expected brief file:"
+  find "$BRIEF_DIR" -maxdepth 1 -type f -name "$DATE_STR.daily.md" -print || true
   if [ ! -f "$brief_path" ]; then
     log "ERROR: expected brief file was not created: $brief_path"
     return 1
