@@ -1,10 +1,16 @@
 import { Box, Container } from '@mui/material'
+import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import HeaderBar from './components/HeaderBar'
 import BriefPage from './pages/BriefPage'
 import QueryPage from './pages/QueryPage'
 
 export default function App() {
+  useEffect(() => {
+    console.info('[dashboard build]', __APP_BUILD_SHA__, __APP_BUILD_TIME__)
+    window.__BRIEFBOT_BUILD__ = { sha: __APP_BUILD_SHA__, builtAt: __APP_BUILD_TIME__ }
+  }, [])
+
   return (
     <Box
       sx={{
@@ -21,6 +27,9 @@ export default function App() {
           <Route path="/" element={<BriefPage />} />
           <Route path="/ask" element={<QueryPage />} />
         </Routes>
+        <Box component="footer" sx={{ mt: 4, pb: 2, color: 'text.secondary', fontSize: 12 }}>
+          Build {__APP_BUILD_SHA__} · {new Date(__APP_BUILD_TIME__).toLocaleString()}
+        </Box>
       </Container>
     </Box>
   )

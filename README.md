@@ -244,6 +244,8 @@ For Tailscale Serve under `/briefs`, use:
 - `/briefs` -> frontend
 - `/api` -> backend
 
+The supported production shape is a built frontend served by the included static server, not Vite dev. Tailscale Serve may forward the mounted path with the prefix removed, so the backend also accepts both `/api/*` and stripped aliases like `/metrics` and `/query` for compatibility and logging visibility.
+
 Example runtime split:
 
 ```bash
@@ -257,6 +259,22 @@ Verify backend health:
 ```bash
 curl http://127.0.0.1:8000/api/health
 ```
+
+Single-command deploy:
+
+```bash
+make deploy-dashboard
+```
+
+This script will:
+
+- `git pull --ff-only`
+- install Python and frontend dependencies
+- build the dashboard with an embedded build SHA/timestamp
+- restart the FastAPI backend and static frontend server
+- verify local `/api/health` and `/api/metrics`
+- verify the built bundle still contains `/api/metrics`, `/api/briefs`, and `/api/query`
+- verify the public Tailscale `/api/metrics` and `/briefs` endpoints when a tailnet URL is discoverable
 
 ## Source Config Fields
 

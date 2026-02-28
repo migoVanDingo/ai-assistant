@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ def _resolve_briefs_dir() -> Path:
 
 
 BRIEFS_DIR = _resolve_briefs_dir()
+logger = logging.getLogger("dashboard.api")
 
 app = FastAPI(title="Morning Brief Dashboard API")
 app.add_middleware(
@@ -76,12 +78,32 @@ def get_dao() -> BriefbotDAO:
     return BriefbotDAO(DashboardConfig(db_path=DB_PATH, briefs_dir=BRIEFS_DIR))
 
 
+@app.middleware("http")
+async def log_dashboard_requests(request, call_next):
+    response = await call_next(request)
+    logger.info(
+        "dashboard request method=%s path=%s status=%s host=%s origin=%s referer=%s x_forwarded_uri=%s x_forwarded_prefix=%s x_forwarded_proto=%s",
+        request.method,
+        request.scope.get("path"),
+        response.status_code,
+        request.headers.get("host"),
+        request.headers.get("origin"),
+        request.headers.get("referer"),
+        request.headers.get("x-forwarded-uri"),
+        request.headers.get("x-forwarded-prefix"),
+        request.headers.get("x-forwarded-proto"),
+    )
+    return response
+
+
 @app.get("/api/health")
+@app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "db_path": str(DB_PATH), "briefs_dir": str(BRIEFS_DIR)}
 
 
 @app.get("/api/briefs")
+@app.get("/briefs")
 def list_briefs() -> list[dict[str, Any]]:
     dao = get_dao()
     try:
@@ -91,6 +113,7 @@ def list_briefs() -> list[dict[str, Any]]:
 
 
 @app.get("/api/briefs/{date_str}")
+@app.get("/briefs/{date_str}")
 def get_brief(date_str: str) -> dict[str, Any]:
     dao = get_dao()
     try:
@@ -103,6 +126,7 @@ def get_brief(date_str: str) -> dict[str, Any]:
 
 
 @app.get("/api/metrics")
+@app.get("/metrics")
 def get_metrics() -> dict[str, Any]:
     dao = get_dao()
     try:
@@ -112,6 +136,7 @@ def get_metrics() -> dict[str, Any]:
 
 
 @app.post("/api/query")
+@app.post("/query")
 def query_llm(req: QueryRequest) -> dict[str, Any]:
     dao = get_dao()
     try:

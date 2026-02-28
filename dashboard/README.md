@@ -68,10 +68,12 @@ Environment variables respected:
 
 Recommended layout when hosting the dashboard at `/briefs`:
 
-- `/briefs` -> frontend Vite/dev server
+- `/briefs` -> frontend static server
 - `/api` -> FastAPI backend
 
-Run frontend:
+Tailscale Serve can forward the mounted request with the prefix stripped before it reaches the upstream process. The backend therefore supports both `/api/*` and stripped aliases like `/metrics`, `/briefs`, and `/query`, and logs `scope.path` plus forwarded headers so you can verify what actually arrived at uvicorn.
+
+Run frontend in development:
 
 ```bash
 cd dashboard
@@ -84,12 +86,31 @@ Run backend:
 uvicorn dashboard.backend.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
+Recommended production deploy:
+
+```bash
+make deploy-dashboard
+```
+
+This builds the frontend into `dashboard/dist`, embeds the build SHA/timestamp, starts:
+
+- FastAPI on `127.0.0.1:8000`
+- the included static SPA server on `127.0.0.1:4173`
+
 Recommended Tailscale Serve config shape:
 
 ```text
-/briefs  -> http://127.0.0.1:5173
+/briefs  -> http://127.0.0.1:4173
 /api     -> http://127.0.0.1:8000
 ```
+
+The deploy script verifies:
+
+- local `http://127.0.0.1:8000/api/health`
+- local `http://127.0.0.1:8000/api/metrics`
+- the served HTML references the newest hashed bundle
+- the bundle contains `/api/metrics`, `/api/briefs`, and `/api/query`
+- the public Tailscale `/api/metrics` endpoint returns `200` when a tailnet URL can be resolved
 
 If you configure SPA fallback for the frontend mount, verify:
 
