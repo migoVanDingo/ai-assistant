@@ -9,8 +9,17 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase()
 
+export function buildApiUrl(path) {
+  return `${API_BASE}${path}`
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const url = buildApiUrl(path)
+  if (import.meta.env.DEV) {
+    // Useful when validating subpath hosting: should stay at /api/*, never /briefs/api/*.
+    console.debug('[dashboard api]', url)
+  }
+  const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   })
