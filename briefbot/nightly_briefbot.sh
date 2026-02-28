@@ -5,6 +5,15 @@ export TZ="America/New_York"
 
 PROJECT_DIR="${PROJECT_DIR:-/home/node1/Projects/ai-assistant}"
 BRIEFBOT_DIR="${BRIEFBOT_DIR:-$PROJECT_DIR}"
+ENV_FILE="${BRIEFBOT_ENV_FILE:-$PROJECT_DIR/.env}"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
 DATA_DIR="${BRIEFBOT_DATA_DIR:-$PROJECT_DIR/data}"
 # Force the brief output into the project data directory to avoid inherited env ambiguity.
 BRIEF_DIR="$DATA_DIR/briefs"
@@ -109,6 +118,7 @@ run() {
   log "python3: $(command -v python3 || echo 'not found')"
   log "Project dir: $PROJECT_DIR"
   log "Runtime dir: $BRIEFBOT_DIR"
+  log "Env file: $ENV_FILE"
   log "DB path: $DB_PATH"
   log "Digest dir: $DIGEST_DIR"
   log "Brief dir: $BRIEF_DIR"
@@ -126,6 +136,12 @@ run() {
   run_step "export followups" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view followups --limit 50
   run_step "export topics" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view topics --limit 50
   run_step "compose brief" python3 - <<PY
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+if load_dotenv:
+    load_dotenv()
 from briefbot.brief import write_daily_brief
 path = write_daily_brief(
     date_str="${DATE_STR}",

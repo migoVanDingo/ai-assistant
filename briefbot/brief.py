@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from dateutil import parser as dtparser
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency at import time
+    load_dotenv = None
 
 from .store import Store
 from .util import ensure_dir
@@ -343,6 +349,8 @@ def write_daily_brief(
 
         enable_exec_summary = exec_summary_enabled()
     if enable_exec_summary and db_path:
+        if load_dotenv:
+            load_dotenv()
         try:
             from .executive import build_exec_summaries
 
@@ -356,11 +364,12 @@ def write_daily_brief(
                 )
             finally:
                 store.close()
-        except Exception:
+        except Exception as exc:
             exec_summary = {
                 "exec_summary_top_links": "",
                 "exec_summary_trends": "",
             }
+            print(f"[briefbot] executive summary failed: {exc}", file=sys.stderr)
 
     lines: list[str] = [f"# Morning Brief {date_str}", ""]
     if enable_exec_summary:
