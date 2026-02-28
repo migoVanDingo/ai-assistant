@@ -32,6 +32,7 @@ cp .env.example .env
 ## Environment Variables
 
 - `BRIEFBOT_DB_PATH` (default `data/briefbot.db`)
+- `BRIEFBOT_BRIEF_DIR` (default `data/briefs`)
 - `BRIEFBOT_CACHE_DIR` (default `data/article_cache`)
 - `BRIEFBOT_SUMMARY_DIR` (default `data/summaries`)
 - `BRIEFBOT_LLM_PROVIDER` (default `anthropic`)
@@ -78,6 +79,14 @@ python -m briefbot run --limit 50
 
 `run` performs collect -> cluster -> exports all configured views.
 
+### Topics
+
+```bash
+python -m briefbot topics --date today --window-days 30 --limit 50
+```
+
+`topics` recomputes topic profiles and exports the `topics` view. Topic computation remains available for exports and background jobs even though the daily brief itself omits the Topics section.
+
 ### Morning Brief
 
 ```bash
@@ -90,6 +99,22 @@ python -m briefbot morning-brief --date today --exec-summary-model claude-haiku-
 
 - `What’s going on`: synthesis of the top Top Links items
 - `What’s trending`: synthesis of the top Trends clusters
+
+Current daily brief layout:
+
+- `What’s going on`
+- `What’s trending`
+- `Top Links` (top 10)
+- `Trends` (top 5)
+- `Opportunities` (top 5)
+- `Followups` (top 5)
+- `Today’s Moves`
+
+The daily brief is written to:
+
+- `data/briefs/YYYY-MM-DD.daily.md`
+
+or `BRIEFBOT_BRIEF_DIR` if overridden.
 
 Example section layout:
 
@@ -138,6 +163,7 @@ python -m briefbot cite --item <item_id> --format json
 
 ```bash
 python -m briefbot get --item rank:12 --date today
+python -m briefbot get --item rank:opportunities:3 --date today
 python -m briefbot get --item <item_id> --force
 ```
 
@@ -145,6 +171,7 @@ python -m briefbot get --item <item_id> --force
 
 ```bash
 python -m briefbot context --item rank:12 --date today --mode summary
+python -m briefbot context --item rank:balanced:12 --date today --mode summary
 python -m briefbot context --item rank:12 --date today --mode full --max-chars 12000
 ```
 
@@ -152,8 +179,21 @@ python -m briefbot context --item rank:12 --date today --mode full --max-chars 1
 
 ```bash
 python -m briefbot summarize --item rank:12 --date today
+python -m briefbot summarize --item rank:opportunities:3 --date today
 python -m briefbot summarize --item <item_id> --provider openai --model gpt-4o-mini
 ```
+
+Rank references supported by retrieval commands:
+
+- `rank:N`
+- `rank:<view>:N`
+
+Examples:
+
+- `rank:balanced:12`
+- `rank:opportunities:3`
+- `rank:trends:1`
+- `rank:followups:2`
 
 ## OpenClaw Workflow Example
 
@@ -167,9 +207,35 @@ If the user asks: "summarize item 12 from today",
 
 - DB: `data/briefbot.db`
 - Digest files: `data/daily_digest/YYYY-MM-DD.<view>.json|md`
+- Daily briefs: `data/briefs/YYYY-MM-DD.daily.md`
 - Article cache: `data/article_cache/<item_id>.txt` and `.llm.txt`
 - Summaries: DB `summaries` table + `data/summaries/<item_id>.<provider>.<model>.md`
 - Executive brief cache: DB `exec_summary_cache` table
+
+## Dashboard
+
+A React + MUI dashboard lives under `dashboard/`. It provides:
+
+- a morning brief reader with a left-hand brief archive
+- theme toggle (light/dark)
+- top-level metrics cards
+- an `Ask Briefbot` route backed by a DAO + LLM adapter over the SQLite DB
+
+Backend:
+
+```bash
+uvicorn dashboard.backend.api:app --reload --host 0.0.0.0 --port 8000
+```
+
+Frontend:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+The frontend proxies `/api` to `http://localhost:8000` by default.
 
 ## Source Config Fields
 
