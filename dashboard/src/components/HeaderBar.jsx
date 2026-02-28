@@ -1,16 +1,14 @@
-import { AppBar, Box, IconButton, Stack, Toolbar, Typography } from '@mui/material'
+import { AppBar, Box, Chip, IconButton, Stack, Toolbar, Typography } from '@mui/material'
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded'
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import SmartToyRoundedIcon from '@mui/icons-material/SmartToyRounded'
 import { Link, useLocation } from 'react-router-dom'
-import { useTheme } from '@mui/material/styles'
 import { useThemeMode } from '../theme/ThemeModeProvider'
 import { useGreeting } from '../hooks/useGreeting'
 
 export default function HeaderBar() {
   const location = useLocation()
-  const theme = useTheme()
   const { mode, toggleMode } = useThemeMode()
   const greeting = useGreeting()
 
@@ -20,13 +18,26 @@ export default function HeaderBar() {
   ]
 
   return (
-    <AppBar position="sticky" elevation={0} sx={{ bgcolor: 'background.paper', color: 'text.primary', borderBottom: 1, borderColor: 'divider' }}>
-      <Toolbar sx={{ gap: 2, py: 1 }}>
+    <AppBar
+      position="sticky"
+      elevation={0}
+      sx={{
+        bgcolor: 'transparent',
+        color: 'text.primary',
+        backdropFilter: 'blur(14px)',
+        borderBottom: 1,
+        borderColor: 'divider',
+      }}
+    >
+      <Toolbar sx={{ gap: 2, py: 1.25 }}>
         <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="overline" sx={{ letterSpacing: 2, color: 'text.secondary' }}>
+          <Typography variant="overline" sx={{ letterSpacing: 2.4, color: 'text.secondary' }}>
             Morning Brief Dashboard
           </Typography>
-          <Typography variant="h5">{greeting}</Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Typography variant="h4">{greeting}</Typography>
+            <Chip size="small" label="Archive + Query Workspace" sx={{ bgcolor: 'background.paper' }} />
+          </Stack>
         </Box>
         <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
           {navItems.map((item) => {
@@ -44,7 +55,7 @@ export default function HeaderBar() {
                   py: 1,
                   borderRadius: 999,
                   textDecoration: 'none',
-                  bgcolor: active ? 'primary.main' : 'transparent',
+                  bgcolor: active ? 'primary.main' : 'background.paper',
                   color: active ? 'primary.contrastText' : 'text.secondary',
                   border: 1,
                   borderColor: active ? 'primary.main' : 'divider',
@@ -56,7 +67,7 @@ export default function HeaderBar() {
             )
           })}
         </Stack>
-        <IconButton onClick={toggleMode} color="inherit" sx={{ border: 1, borderColor: 'divider' }}>
+        <IconButton onClick={toggleMode} color="inherit" sx={{ border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
           {mode === 'dark' ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
         </IconButton>
       </Toolbar>

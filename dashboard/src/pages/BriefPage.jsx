@@ -1,4 +1,4 @@
-import { Alert, Box, CircularProgress, Grid2 as Grid, Stack, Typography } from '@mui/material'
+import { Alert, Box, CircularProgress, Grid2 as Grid, Paper, Stack, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import BriefSidebar from '../components/BriefSidebar'
 import BriefViewer from '../components/BriefViewer'
@@ -48,6 +48,13 @@ export default function BriefPage() {
   return (
     <Stack spacing={3}>
       <MetricsCards metrics={metrics} />
+      <Paper sx={{ p: 2.5, borderRadius: 4 }}>
+        <Typography variant="h5" sx={{ mb: 0.5 }}>Morning Brief Archive</Typography>
+        <Typography color="text.secondary">
+          Briefs are loaded from markdown files in the briefs directory, not reconstructed from the database.
+          The database is used separately for metrics and query tools.
+        </Typography>
+      </Paper>
       {error ? <Alert severity="error">{error}</Alert> : null}
       <Grid container spacing={3} alignItems="flex-start">
         <Grid size={{ xs: 12, md: 3 }}>

@@ -12,7 +12,7 @@ export default function MetricsCards({ metrics }) {
     <Grid container spacing={2} sx={{ mb: 3 }}>
       {cards.map((card) => (
         <Grid key={card.label} size={{ xs: 12, sm: 6, lg: 3 }}>
-          <Paper sx={{ p: 2.5 }}>
+          <Paper sx={{ p: 2.75, borderRadius: 4 }}>
             <Stack spacing={0.5}>
               <Typography variant="overline" color="text.secondary">{card.label}</Typography>
               <Typography variant="h4">{card.value}</Typography>

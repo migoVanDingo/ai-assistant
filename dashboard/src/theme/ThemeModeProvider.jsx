@@ -1,29 +1,33 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-const ThemeModeContext = createContext({ mode: 'dark', toggleMode: () => {} })
+const ThemeModeContext = createContext({ mode: 'light', toggleMode: () => {} })
 
 const baseTokens = {
   light: {
-    background: '#f6f2e8',
-    paper: '#fffaf0',
-    accent: '#8a3b12',
-    accentSoft: '#e8c7ae',
-    text: '#1f1b16',
-    muted: '#695d52',
+    background: '#f4f7fb',
+    paper: '#ffffff',
+    accent: '#1769aa',
+    accentSoft: '#d7e7f6',
+    accentStrong: '#0f4f84',
+    text: '#0f1720',
+    muted: '#5d6b7a',
+    canvas: '#e9f1f8',
   },
   dark: {
-    background: '#111418',
-    paper: '#171c21',
-    accent: '#f4a261',
-    accentSoft: '#4b2f1e',
-    text: '#f3efe8',
-    muted: '#b8aa98',
+    background: '#0b1220',
+    paper: '#121b2b',
+    accent: '#5ab0ff',
+    accentSoft: '#1a2a43',
+    accentStrong: '#8bc8ff',
+    text: '#ebf3ff',
+    muted: '#93a4b7',
+    canvas: '#0f1725',
   },
 }
 
 export function ThemeModeProvider({ children }) {
-  const [mode, setMode] = useState(() => localStorage.getItem('briefbot-dashboard-theme') || 'dark')
+  const [mode, setMode] = useState(() => localStorage.getItem('briefbot-dashboard-theme') || 'light')
 
   const toggleMode = () => {
     setMode((current) => {
@@ -44,10 +48,11 @@ export function ThemeModeProvider({ children }) {
       },
       shape: { borderRadius: 18 },
       typography: {
-        fontFamily: 'Georgia, ui-serif, serif',
-        h3: { fontWeight: 700 },
-        h4: { fontWeight: 700 },
-        h5: { fontWeight: 700 },
+        fontFamily: '"Inter", "SF Pro Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
+        h3: { fontWeight: 800, letterSpacing: '-0.03em' },
+        h4: { fontWeight: 800, letterSpacing: '-0.02em' },
+        h5: { fontWeight: 750, letterSpacing: '-0.02em' },
+        h6: { fontWeight: 700 },
         button: { textTransform: 'none', fontWeight: 600 },
       },
       components: {
@@ -56,6 +61,7 @@ export function ThemeModeProvider({ children }) {
             root: {
               backgroundImage: 'none',
               border: `1px solid ${token.accentSoft}`,
+              boxShadow: mode === 'dark' ? '0 18px 50px rgba(0, 0, 0, 0.25)' : '0 18px 50px rgba(15, 23, 32, 0.08)',
             },
           },
         },
