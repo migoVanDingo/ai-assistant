@@ -22,7 +22,8 @@ export BRIEFBOT_SUMMARY_DIR="$SUMMARY_DIR"
 # Telegram target examples:
 # - chat id (recommended): 123456789
 # - username: @myhandle
-TELEGRAM_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-}"
+MESSAGE_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-${OPENCLAW_TELEGRAM_TARGET:-${TELEGRAM_TARGET:-}}}"
+OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$BRIEF_DIR"
@@ -40,8 +41,27 @@ log() {
 
 notify() {
   local msg="$1"
-  if [ -n "${TELEGRAM_TARGET:-}" ]; then
-    openclaw message send --channel telegram --target "$TELEGRAM_TARGET" --message "$msg" >/dev/null 2>&1 || true
+  local output=""
+  if [ -z "${MESSAGE_TARGET:-}" ]; then
+    log "NOTICE: Telegram notification skipped; no target configured. Set BRIEFBOT_TELEGRAM_TARGET."
+    return 0
+  fi
+  if ! command -v "$OPENCLAW_BIN" >/dev/null 2>&1; then
+    log "NOTICE: Telegram notification skipped; command not found: $OPENCLAW_BIN"
+    return 0
+  fi
+
+  log "Sending Telegram notification to ${MESSAGE_TARGET}"
+  if output="$("$OPENCLAW_BIN" message send --channel telegram --target "$MESSAGE_TARGET" --message "$msg" 2>&1)"; then
+    log "Telegram notification sent"
+    if [ -n "$output" ]; then
+      echo "$output"
+    fi
+  else
+    log "WARNING: Telegram notification failed"
+    if [ -n "$output" ]; then
+      echo "$output"
+    fi
   fi
 }
 
