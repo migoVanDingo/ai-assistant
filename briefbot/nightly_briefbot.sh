@@ -3,16 +3,16 @@ set -euo pipefail
 
 export TZ="America/New_York"
 
-PROJECT_DIR="~/Projects/ai-assistant"
-BRIEFBOT_DIR=$PROJECT_DIR
-DATA_DIR="$PROJECT_DIR/data"
+PROJECT_DIR="${PROJECT_DIR:-/home/node1/Projects/ai-assistant}"
+BRIEFBOT_DIR="${BRIEFBOT_DIR:-$PROJECT_DIR}"
+DATA_DIR="${BRIEFBOT_DATA_DIR:-$PROJECT_DIR/data}"
 # Force the brief output into the project data directory to avoid inherited env ambiguity.
 BRIEF_DIR="$DATA_DIR/briefs"
-LOG_DIR="$DATA_DIR/logs"
-DB_PATH="$DATA_DIR/briefbot.db"
-CACHE_DIR="$DATA_DIR/article_cache"
-SUMMARY_DIR="$DATA_DIR/summaries"
-DIGEST_DIR="$DATA_DIR/daily_digest"
+LOG_DIR="${BRIEFBOT_LOG_DIR:-$DATA_DIR/logs}"
+DB_PATH="${BRIEFBOT_DB_PATH:-$DATA_DIR/briefbot.db}"
+CACHE_DIR="${BRIEFBOT_CACHE_DIR:-$DATA_DIR/article_cache}"
+SUMMARY_DIR="${BRIEFBOT_SUMMARY_DIR:-$DATA_DIR/summaries}"
+DIGEST_DIR="${BRIEFBOT_DIGEST_DIR:-$DATA_DIR/daily_digest}"
 
 export BRIEFBOT_BRIEF_DIR="$BRIEF_DIR"
 export BRIEFBOT_LOG_DIR="$LOG_DIR"
