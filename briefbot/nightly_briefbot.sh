@@ -84,6 +84,23 @@ run_step() {
   log "DONE: $label"
 }
 
+run_step_allow_failure() {
+  local label="$1"
+  shift
+  local exit_code=0
+  log "START: $label"
+  set +e
+  "$@"
+  exit_code=$?
+  set -e
+  if [ "$exit_code" -eq 0 ]; then
+    log "DONE: $label"
+  else
+    log "WARNING: $label exited with code $exit_code; continuing"
+  fi
+  return 0
+}
+
 run() {
   cd "$BRIEFBOT_DIR"
 
@@ -98,7 +115,7 @@ run() {
   log "Summary dir: $SUMMARY_DIR"
   log "Cache dir: $CACHE_DIR"
 
-  run_step "collect" python3 -m briefbot --db "$DB_PATH" collect
+  run_step_allow_failure "collect" python3 -m briefbot --db "$DB_PATH" collect
   run_step "cluster" python3 -m briefbot --db "$DB_PATH" cluster --date "$DATE_STR" --window-days 14
   run_step "topics" python3 -m briefbot --db "$DB_PATH" topics --date "$DATE_STR" --window-days 30 --limit 50
 
