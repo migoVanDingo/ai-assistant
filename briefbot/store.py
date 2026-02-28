@@ -309,7 +309,7 @@ class Store:
             """
             SELECT *
             FROM items
-            WHERE date(fetched_at) = date(?)
+            WHERE date(datetime(fetched_at, 'localtime')) = date(?)
             ORDER BY score DESC, published_at DESC
             LIMIT ?
             """,
@@ -326,7 +326,7 @@ class Store:
             f"""
             SELECT *
             FROM items
-            WHERE date(fetched_at) = date(?)
+            WHERE date(datetime(fetched_at, 'localtime')) = date(?)
             {order_clause}
             LIMIT ?
             """,

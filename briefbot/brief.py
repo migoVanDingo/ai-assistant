@@ -193,7 +193,7 @@ def _render_trends_section(lines: list[str], payload: dict[str, Any] | None, ctx
     if ctx is not None:
         ctx["track_cluster"] = clusters[0]
 
-    for idx, c in enumerate(clusters, start=1):
+    for idx, c in enumerate(clusters[:15], start=1):
         label = c.get("label") or "general update"
         rep_title = c.get("representative_title") or label
         rep_url = c.get("representative_url") or ""

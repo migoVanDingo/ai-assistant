@@ -149,10 +149,10 @@ PY
   # Extract Today’s Moves (if present) for the notification body
   local moves
   moves="$(awk '
-    BEGIN{in=0}
-    /^## Today/ {in=1; next}
-    in==1 && /^## / {exit}
-    in==1 {print}
+    BEGIN{inside=0}
+    /^## Today/ {inside=1; next}
+    inside==1 && /^## / {exit}
+    inside==1 {print}
   ' "$brief_path" | sed '/^\s*$/d' | head -n 12)"
 
   if [ -z "${moves:-}" ]; then
