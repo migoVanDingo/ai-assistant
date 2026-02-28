@@ -125,7 +125,16 @@ run() {
   run_step "export opportunities" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view opportunities --limit 50
   run_step "export followups" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view followups --limit 50
   run_step "export topics" python3 -m briefbot --db "$DB_PATH" export --date "$DATE_STR" --view topics --limit 50
-  run_step "compose brief" python3 -m briefbot --db "$DB_PATH" morning-brief --date "$DATE_STR" --window-days 14 --limit 50
+  run_step "compose brief" python3 - <<PY
+from briefbot.brief import write_daily_brief
+path = write_daily_brief(
+    date_str="${DATE_STR}",
+    digest_dir="${DIGEST_DIR}",
+    out_dir="${BRIEF_DIR}",
+    db_path="${DB_PATH}",
+)
+print(path)
+PY
 
   local brief_path="$BRIEF_DIR/$DATE_STR.daily.md"
   log "Listing brief dir after compose:"
