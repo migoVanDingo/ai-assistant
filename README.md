@@ -237,6 +237,25 @@ npm run dev
 
 The frontend proxies `/api` to `http://localhost:8000` by default.
 
+For Tailscale Serve under `/briefs`, use:
+
+- `/briefs` -> frontend
+- `/api` -> backend
+
+Example runtime split:
+
+```bash
+uvicorn dashboard.backend.api:app --reload --host 127.0.0.1 --port 8000
+cd dashboard
+VITE_APP_BASE=/briefs/ npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Verify backend health:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
 ## Source Config Fields
 
 Each source supports:

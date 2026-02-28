@@ -25,10 +25,20 @@ React Router uses `import.meta.env.BASE_URL` as its basename, so these paths sho
 - `/briefs/ask`
 - refresh on `/briefs/ask`
 
+The frontend API helper intentionally uses absolute `/api/*` paths. For local dev that works through the Vite proxy. For Tailscale Serve, route `/api` directly to the backend rather than the frontend.
+
 ## Backend
 
 ```bash
 uvicorn dashboard.backend.api:app --reload --host 0.0.0.0 --port 8000
+```
+
+Verification:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/briefs
+curl http://127.0.0.1:8000/api/metrics
 ```
 
 Environment variables respected:
@@ -40,3 +50,44 @@ Environment variables respected:
 - `BRIEFBOT_MODEL_FOR_SUMMARIES`
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
+
+## Tailscale Serve
+
+Recommended layout when hosting the dashboard at `/briefs`:
+
+- `/briefs` -> frontend Vite/dev server
+- `/api` -> FastAPI backend
+
+Run frontend:
+
+```bash
+cd dashboard
+VITE_APP_BASE=/briefs/ npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Run backend:
+
+```bash
+uvicorn dashboard.backend.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Recommended Tailscale Serve config shape:
+
+```text
+/briefs  -> http://127.0.0.1:5173
+/api     -> http://127.0.0.1:8000
+```
+
+If you configure SPA fallback for the frontend mount, verify:
+
+- `https://<node>.ts.net/briefs`
+- `https://<node>.ts.net/briefs/ask`
+- refresh on `https://<node>.ts.net/briefs/ask`
+
+The backend CORS policy allows:
+
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+- `http://localhost:4173`
+- `http://127.0.0.1:4173`
+- any `https://*.ts.net` origin
