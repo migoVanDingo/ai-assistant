@@ -237,6 +237,8 @@ npm run dev
 
 The frontend proxies `/api` to `http://localhost:8000` by default.
 
+The dashboard frontend uses absolute `/api/*` requests. `VITE_API_BASE_URL` should only be set to a full `http(s)` origin. Do not set it to `/briefs` or any other path-only value.
+
 For Tailscale Serve under `/briefs`, use:
 
 - `/briefs` -> frontend

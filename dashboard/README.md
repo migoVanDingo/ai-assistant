@@ -27,6 +27,19 @@ React Router uses `import.meta.env.BASE_URL` as its basename, so these paths sho
 
 The frontend API helper intentionally uses absolute `/api/*` paths. For local dev that works through the Vite proxy. For Tailscale Serve, route `/api` directly to the backend rather than the frontend.
 
+`VITE_API_BASE_URL` is optional and is only honored when it is a full origin such as:
+
+- `http://127.0.0.1:8000`
+- `https://node1.tailxxxx.ts.net`
+
+Do not set:
+
+- `VITE_API_BASE_URL=/briefs`
+- `VITE_API_BASE_URL=/briefs/`
+- any other path-only value
+
+If unset, the frontend defaults to same-origin root-relative API calls such as `/api/metrics`.
+
 ## Backend
 
 ```bash
