@@ -12,6 +12,19 @@ npm run dev
 
 Vite dev server defaults to `http://localhost:5173` and proxies `/api` to `http://localhost:8000`.
 
+Base-path hosting:
+
+- local root hosting:
+  - `VITE_APP_BASE=/ npm run dev`
+- subpath hosting under `/briefs/`:
+  - `VITE_APP_BASE=/briefs/ npm run dev -- --host 0.0.0.0`
+
+React Router uses `import.meta.env.BASE_URL` as its basename, so these paths should work when the hosting layer rewrites requests to the SPA entrypoint:
+
+- `/briefs`
+- `/briefs/ask`
+- refresh on `/briefs/ask`
+
 ## Backend
 
 ```bash
