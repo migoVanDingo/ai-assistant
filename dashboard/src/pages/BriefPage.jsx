@@ -1,64 +1,24 @@
-import { Alert, Box, CircularProgress, Grid2 as Grid, Paper, Stack, Typography } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { Grid2 as Grid, Paper, Stack, Typography, useMediaQuery } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import BriefSidebar from '../components/BriefSidebar'
 import BriefViewer from '../components/BriefViewer'
 import MetricsCards from '../components/MetricsCards'
-import { api } from '../services/api'
 
-export default function BriefPage() {
-  const [briefs, setBriefs] = useState([])
-  const [selectedDate, setSelectedDate] = useState('')
-  const [markdown, setMarkdown] = useState('')
-  const [metrics, setMetrics] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    async function load() {
-      try {
-        setLoading(true)
-        const [briefList, metricPayload] = await Promise.all([api.listBriefs(), api.getMetrics()])
-        setBriefs(briefList)
-        setMetrics(metricPayload)
-        const initialDate = briefList[0]?.date || ''
-        setSelectedDate(initialDate)
-        if (initialDate) {
-          const brief = await api.getBrief(initialDate)
-          setMarkdown(brief.markdown)
-        }
-      } catch (err) {
-        setError(err.message || 'Failed to load dashboard data.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
-
-  const handleSelect = async (date) => {
-    setSelectedDate(date)
-    const brief = await api.getBrief(date)
-    setMarkdown(brief.markdown)
-  }
-
-  if (loading) {
-    return <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '60vh' }}><CircularProgress /></Box>
-  }
-
+export default function BriefPage({ briefs, selectedDate, markdown, metrics, onSelectBrief }) {
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   return (
     <Stack spacing={3}>
-      <MetricsCards metrics={metrics} />
-      <Paper sx={{ p: 2.5, borderRadius: 4 }}>
+      {!isMobile ? <MetricsCards metrics={metrics} /> : null}
+      <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 4 }}>
         <Typography variant="h5" sx={{ mb: 0.5 }}>Morning Brief Archive</Typography>
         <Typography color="text.secondary">
-          Briefs are loaded from markdown files in the briefs directory, not reconstructed from the database.
-          The database is used separately for metrics and query tools.
+          Briefs are loaded directly from the markdown files in the briefs directory. Use the menu to switch views on mobile.
         </Typography>
       </Paper>
-      {error ? <Alert severity="error">{error}</Alert> : null}
       <Grid container spacing={3} alignItems="flex-start">
-        <Grid size={{ xs: 12, md: 3 }}>
-          <BriefSidebar briefs={briefs} selectedDate={selectedDate} onSelect={handleSelect} />
+        <Grid size={{ md: 3 }} sx={{ display: { xs: 'none', md: 'block' } }}>
+          <BriefSidebar briefs={briefs} selectedDate={selectedDate} onSelect={onSelectBrief} />
         </Grid>
         <Grid size={{ xs: 12, md: 9 }}>
           {selectedDate ? (
