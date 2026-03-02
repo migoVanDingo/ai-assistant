@@ -35,4 +35,17 @@ export const api = {
   getBrief: (date) => request(`/api/briefs/${date}`),
   getMetrics: () => request('/api/metrics'),
   query: (payload) => request('/api/query', { method: 'POST', body: JSON.stringify(payload) }),
+  listQueries: (params = {}) => {
+    const search = new URLSearchParams()
+    if (params.days) search.set('days', params.days)
+    if (params.limit) search.set('limit', params.limit)
+    const suffix = search.toString() ? `?${search.toString()}` : ''
+    return request(`/api/queries${suffix}`)
+  },
+  getQuery: (id) => request(`/api/queries/${id}`),
+  listStorySources: () => request('/api/stories/sources'),
+  listStoryClusters: () => request('/api/stories/clusters'),
+  listStoryTags: () => request('/api/stories/tags'),
+  listStoryWatchHits: () => request('/api/stories/watch-hits'),
+  queryStories: (payload) => request('/api/stories', { method: 'POST', body: JSON.stringify(payload) }),
 }

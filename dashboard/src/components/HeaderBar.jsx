@@ -18,6 +18,7 @@ import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded'
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import SmartToyRoundedIcon from '@mui/icons-material/SmartToyRounded'
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -37,6 +38,7 @@ export default function HeaderBar({ briefs, selectedDate, onSelectBrief }) {
   const navItems = [
     { to: '/', label: 'Morning Brief', icon: <ArticleRoundedIcon fontSize="small" /> },
     { to: '/ask', label: 'Ask Briefbot', icon: <SmartToyRoundedIcon fontSize="small" /> },
+    { to: '/stories', label: 'Stories', icon: <ViewListRoundedIcon fontSize="small" /> },
   ]
 
   return (

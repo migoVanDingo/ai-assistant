@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom'
 import HeaderBar from './components/HeaderBar'
 import BriefPage from './pages/BriefPage'
 import QueryPage from './pages/QueryPage'
+import StoriesPage from './pages/StoriesPage'
 import { api } from './services/api'
 
 export default function App() {
@@ -92,6 +93,7 @@ export default function App() {
             }
           />
           <Route path="/ask" element={<QueryPage />} />
+          <Route path="/stories" element={<StoriesPage />} />
         </Routes>
         <Box component="footer" sx={{ mt: 4, pb: 2, color: 'text.secondary', fontSize: 12 }}>
           Build {__APP_BUILD_SHA__} · {new Date(__APP_BUILD_TIME__).toLocaleString()}
