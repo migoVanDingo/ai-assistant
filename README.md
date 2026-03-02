@@ -1,7 +1,7 @@
 # Morning Brief Collector (`briefbot`)
 
 `briefbot` is a local ingestion + radar + retrieval pipeline.
-It collects from feeds/APIs, stores all items in SQLite, clusters storylines, and exports digest views. It also supports item-level retrieval/citation/LLM summarization for OpenClaw-style workflows.
+It collects from feeds/APIs, stores all items in SQLite, clusters storylines, exports digest views, writes a daily markdown brief, and serves a dashboard for browsing/querying the archive.
 
 ## Features
 
@@ -18,6 +18,9 @@ It collects from feeds/APIs, stores all items in SQLite, clusters storylines, an
 - Executive brief layer:
   - two-stage LLM synthesis for the daily brief (`What’s going on`, `What’s trending`)
   - excerpt + stage-1 JSON caching in SQLite
+- Nightly automation:
+  - `briefbot/nightly_briefbot.sh` runs collect/cluster/topics/exports/brief composition
+  - optional Telegram notification when a target is configured
 - `.env` configuration support
 
 ## Setup
@@ -42,6 +45,13 @@ cp .env.example .env
 - `BRIEFBOT_MAX_CHARS_PER_ARTICLE` (default `12000`)
 - `BRIEFBOT_N_TOP_LINKS_TO_SUMMARIZE` (default `10`)
 - `BRIEFBOT_N_TRENDS_TO_SUMMARIZE` (default `5`)
+- `BRIEFBOT_DIGEST_DIR` (optional override for digest output in the nightly script)
+- `BRIEFBOT_LOG_DIR` (optional override for nightly logs)
+- `BRIEFBOT_ENV_FILE` (optional `.env` path)
+- `BRIEFBOT_TELEGRAM_TARGET` (optional Telegram target for nightly notifications)
+- `BRIEFBOT_GREETING_NAME` (optional greeting name in the nightly Telegram message; default `there`)
+- `OPENCLAW_BIN` (optional override for the OpenClaw CLI used by the nightly script)
+- `DASHBOARD_BRIEFS_URL` (optional URL included in the nightly Telegram message)
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
 
@@ -78,6 +88,34 @@ python -m briefbot run --limit 50
 ```
 
 `run` performs collect -> cluster -> exports all configured views.
+
+### Nightly Automation
+
+Run the full nightly shell workflow directly:
+
+```bash
+./briefbot/nightly_briefbot.sh
+```
+
+Or via `make`:
+
+```bash
+make nightly-briefbot
+```
+
+What the nightly script does:
+
+- loads `.env` if present
+- runs `collect`, `cluster`, `topics`
+- exports `balanced`, `trends`, `opportunities`, `followups`, `topics`
+- composes `data/briefs/YYYY-MM-DD.daily.md`
+- optionally sends a Telegram message with the dashboard URL
+
+Telegram behavior:
+
+- if `BRIEFBOT_TELEGRAM_TARGET` is unset, Telegram is skipped without failing the run
+- if `openclaw` is unavailable, Telegram is skipped without failing the run
+- the greeting text uses `BRIEFBOT_GREETING_NAME`, so different users can customize it
 
 ### Topics
 
@@ -208,6 +246,7 @@ If the user asks: "summarize item 12 from today",
 - DB: `data/briefbot.db`
 - Digest files: `data/daily_digest/YYYY-MM-DD.<view>.json|md`
 - Daily briefs: `data/briefs/YYYY-MM-DD.daily.md`
+- Nightly logs: `data/logs/nightly.YYYY-MM-DD.log`
 - Article cache: `data/article_cache/<item_id>.txt` and `.llm.txt`
 - Summaries: DB `summaries` table + `data/summaries/<item_id>.<provider>.<model>.md`
 - Executive brief cache: DB `exec_summary_cache` table
@@ -220,6 +259,8 @@ A React + MUI dashboard lives under `dashboard/`. It provides:
 - theme toggle (light/dark)
 - top-level metrics cards
 - an `Ask Briefbot` route backed by a DAO + LLM adapter over the SQLite DB
+- recent query history persisted in SQLite and replayable without another LLM call
+- a deterministic `Stories` browser with source/cluster/tag/watch-hit/date filters
 
 Backend:
 
@@ -258,6 +299,45 @@ Verify backend health:
 
 ```bash
 curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/queries
+curl http://127.0.0.1:8000/api/stories/sources
+curl http://127.0.0.1:8000/api/stories
+```
+
+### Ask Briefbot
+
+The Ask route uses a bounded tool router over the local SQLite archive.
+
+- recent queries are stored in the `dashboard_queries` table
+- the desktop layout shows recent queries in a left sidebar
+- mobile shows recent queries in the drawer when you are on `/ask`
+- selecting a past query reopens the exact stored markdown response
+- item-heavy results are rendered as deterministic markdown lists with clickable links
+
+### Stories Browser
+
+The Stories route is deterministic and does not call an LLM.
+
+Available filters:
+
+- source buttons
+- date from / date to
+- limit selector
+- cluster dropdown
+- tags multiselect
+- watch hits multiselect
+- published-date sort order
+
+Useful endpoints:
+
+```bash
+curl http://127.0.0.1:8000/api/stories/sources
+curl http://127.0.0.1:8000/api/stories/clusters
+curl http://127.0.0.1:8000/api/stories/tags
+curl http://127.0.0.1:8000/api/stories/watch-hits
+curl -X POST http://127.0.0.1:8000/api/stories \
+  -H 'Content-Type: application/json' \
+  -d '{"source_name":"arXiv","limit":10,"order":"desc"}'
 ```
 
 Single-command deploy:

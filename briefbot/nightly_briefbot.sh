@@ -35,6 +35,7 @@ export BRIEFBOT_SUMMARY_DIR="$SUMMARY_DIR"
 MESSAGE_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-${OPENCLAW_TELEGRAM_TARGET:-${TELEGRAM_TARGET:-}}}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
 DASHBOARD_BRIEFS_URL="${DASHBOARD_BRIEFS_URL:-https://node1.tailb058fe.ts.net/briefs}"
+GREETING_NAME="${BRIEFBOT_GREETING_NAME:-there}"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$BRIEF_DIR"
@@ -164,7 +165,7 @@ PY
     return 1
   fi
 
-  notify "✅ Good morning Miguel! Your daily brief is ready to view.
+  notify "✅ Good morning ${GREETING_NAME}! Your daily brief is ready to view.
 
 $DASHBOARD_BRIEFS_URL"
 
