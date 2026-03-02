@@ -26,7 +26,7 @@ import { useTheme } from '@mui/material/styles'
 import { useThemeMode } from '../theme/ThemeModeProvider'
 import { useGreeting } from '../hooks/useGreeting'
 
-export default function HeaderBar({ briefs, selectedDate, onSelectBrief }) {
+export default function HeaderBar({ briefs, selectedDate, onSelectBrief, recentQueries, queriesLoading }) {
   const location = useLocation()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
@@ -34,6 +34,8 @@ export default function HeaderBar({ briefs, selectedDate, onSelectBrief }) {
   const greeting = useGreeting()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const showBriefsMenu = location.pathname === '/'
+  const showQueriesMenu = location.pathname === '/ask'
+  const selectedQueryId = new URLSearchParams(location.search).get('queryId') || ''
 
   const navItems = [
     { to: '/', label: 'Morning Brief', icon: <ArticleRoundedIcon fontSize="small" /> },
@@ -171,6 +173,45 @@ export default function HeaderBar({ briefs, selectedDate, onSelectBrief }) {
                           />
                         </ListItemButton>
                       ))}
+                    </List>
+                  </>
+                ) : null}
+                {showQueriesMenu ? (
+                  <>
+                    <Divider sx={{ my: 0.5 }} />
+                    <Box sx={{ px: 1.25 }}>
+                      <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: 2 }}>
+                        Recent Queries
+                      </Typography>
+                    </Box>
+                    <List disablePadding sx={{ overflowY: 'auto', flex: 1, pr: 0.5 }}>
+                      {queriesLoading ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ px: 1.25, py: 2 }}>
+                          Loading query history...
+                        </Typography>
+                      ) : null}
+                      {!queriesLoading && recentQueries.map((query) => (
+                        <ListItemButton
+                          key={query.id}
+                          component={Link}
+                          to={`/ask?queryId=${encodeURIComponent(query.id)}`}
+                          selected={query.id === selectedQueryId}
+                          onClick={() => setDrawerOpen(false)}
+                          sx={{ borderRadius: 3, mb: 0.75, alignItems: 'flex-start' }}
+                        >
+                          <ListItemText
+                            primary={query.user_query}
+                            secondary={new Date(query.created_at).toLocaleString()}
+                            primaryTypographyProps={{ fontWeight: 700 }}
+                            secondaryTypographyProps={{ sx: { mt: 0.35 } }}
+                          />
+                        </ListItemButton>
+                      ))}
+                      {!queriesLoading && recentQueries.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ px: 1.25, py: 2 }}>
+                          No saved queries yet.
+                        </Typography>
+                      ) : null}
                     </List>
                   </>
                 ) : null}

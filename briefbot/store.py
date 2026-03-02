@@ -243,7 +243,7 @@ class Store:
                 self.conn.execute(
                     """
                     UPDATE items
-                    SET last_seen_at = ?, score = ?, fetched_at = ?,
+                    SET last_seen_at = ?, score = ?,
                         source_category = ?, source_tier = ?, source_max_daily = ?, watch_hits_json = ?,
                         score_opportunity = ?, opportunity_reason = ?, opportunity_tags_json = ?
                     WHERE dedupe_key = ?
@@ -251,7 +251,6 @@ class Store:
                     (
                         now,
                         item["score"],
-                        item["fetched_at"],
                         item.get("source_category"),
                         item.get("source_tier"),
                         item.get("source_max_daily"),
@@ -322,8 +321,8 @@ class Store:
             """
             SELECT *
             FROM items
-            WHERE date(datetime(fetched_at, 'localtime')) = date(?)
-            ORDER BY score DESC, published_at DESC
+            WHERE date(datetime(COALESCE(published_at, fetched_at), 'localtime')) = date(?)
+            ORDER BY score DESC, datetime(COALESCE(published_at, fetched_at)) DESC
             LIMIT ?
             """,
             (date_str, limit),
@@ -339,7 +338,7 @@ class Store:
             f"""
             SELECT *
             FROM items
-            WHERE date(datetime(fetched_at, 'localtime')) = date(?)
+            WHERE date(datetime(COALESCE(published_at, fetched_at), 'localtime')) = date(?)
             {order_clause}
             LIMIT ?
             """,
@@ -521,10 +520,12 @@ class Store:
     def fetch_clusters_for_date(self, date_str: str, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
-            SELECT *
-            FROM clusters
-            WHERE date(last_seen_at) <= date(?)
-            ORDER BY trend_score DESC, last_seen_at DESC
+            SELECT c.*
+            FROM cluster_events e
+            JOIN clusters c ON c.cluster_id = e.cluster_id
+            WHERE date(e.date) = date(?)
+              AND COALESCE(e.items_added, 0) > 0
+            ORDER BY c.trend_score DESC, c.last_seen_at DESC
             LIMIT ?
             """,
             (date_str, limit),

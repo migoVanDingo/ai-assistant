@@ -318,15 +318,27 @@ class BriefbotDAO:
         return [row["source_name"] for row in rows]
 
     def list_clusters(self, limit: int = 200) -> list[dict[str, Any]]:
-        return self._rows(
+        rows = self._rows(
             """
             SELECT cluster_id AS id, label, trend_score
             FROM clusters
             ORDER BY trend_score DESC, label ASC
             LIMIT ?
             """,
-            (int(limit),),
+            (max(int(limit) * 4, 200),),
         )
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            label = (row.get("label") or "").strip()
+            key = label.lower() if label else f"id:{row.get('id')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+            if len(deduped) >= int(limit):
+                break
+        return deduped
 
     def list_tags(self, days: int = 30, limit: int = 200) -> list[dict[str, Any]]:
         return self._rows(

@@ -187,6 +187,7 @@ def query_llm(req: QueryRequest) -> dict[str, Any]:
 
 
 @app.get("/api/queries")
+@app.get("/queries")
 def list_queries(days: int = 14, limit: int = 20) -> list[dict[str, Any]]:
     dao = get_dao()
     try:
@@ -196,6 +197,7 @@ def list_queries(days: int = 14, limit: int = 20) -> list[dict[str, Any]]:
 
 
 @app.get("/api/queries/{query_id}")
+@app.get("/queries/{query_id}")
 def get_query(query_id: str) -> dict[str, Any]:
     dao = get_dao()
     try:
@@ -208,6 +210,7 @@ def get_query(query_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/stories/sources")
+@app.get("/stories/sources")
 def list_story_sources() -> list[str]:
     dao = get_dao()
     try:
@@ -217,6 +220,7 @@ def list_story_sources() -> list[str]:
 
 
 @app.get("/api/stories/clusters")
+@app.get("/stories/clusters")
 def list_story_clusters() -> list[dict[str, Any]]:
     dao = get_dao()
     try:
@@ -226,6 +230,7 @@ def list_story_clusters() -> list[dict[str, Any]]:
 
 
 @app.get("/api/stories/tags")
+@app.get("/stories/tags")
 def list_story_tags() -> list[dict[str, Any]]:
     dao = get_dao()
     try:
@@ -235,6 +240,7 @@ def list_story_tags() -> list[dict[str, Any]]:
 
 
 @app.get("/api/stories/watch-hits")
+@app.get("/stories/watch-hits")
 def list_story_watch_hits() -> list[dict[str, Any]]:
     dao = get_dao()
     try:
@@ -244,6 +250,7 @@ def list_story_watch_hits() -> list[dict[str, Any]]:
 
 
 @app.post("/api/stories")
+@app.post("/stories")
 def query_stories(req: StoriesQuery) -> dict[str, Any]:
     dao = get_dao()
     try:
@@ -262,6 +269,7 @@ def query_stories(req: StoriesQuery) -> dict[str, Any]:
 
 
 @app.get("/api/stories")
+@app.get("/stories")
 def query_stories_get(
     source_name: str | None = None,
     from_date: str | None = None,

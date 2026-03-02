@@ -1,3 +1,4 @@
+import { LoadingButton } from '@mui/lab'
 import {
   CircularProgress,
   FormControl,
@@ -16,6 +17,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
 
 const LIMIT_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+
+function dedupeBy(items, keyFn) {
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = keyFn(item)
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+}
 
 function buildHeading(filters, clusters) {
   if (filters.source_name) return `Source: ${filters.source_name}`
@@ -47,6 +60,18 @@ export default function StoriesPage() {
     watch_hits: [],
     order: 'desc',
   })
+  const [appliedFilters, setAppliedFilters] = useState({
+    source_name: '',
+    from_date: '',
+    to_date: '',
+    limit: 20,
+    cluster_id: '',
+    tags: [],
+    watch_hits: [],
+    order: 'desc',
+  })
+
+  const normalizeMultiValue = (value) => (Array.isArray(value) ? value : String(value).split(',').filter(Boolean))
 
   useEffect(() => {
     async function loadOptions() {
@@ -59,10 +84,10 @@ export default function StoriesPage() {
           api.listStoryTags(),
           api.listStoryWatchHits(),
         ])
-        setSources(sourceList)
-        setClusters(clusterList)
-        setTags(tagList)
-        setWatchHits(watchHitList)
+        setSources(dedupeBy(sourceList, (item) => String(item).toLowerCase()))
+        setClusters(dedupeBy(clusterList, (item) => ((item.label || item.id || '').trim().toLowerCase())))
+        setTags(dedupeBy(tagList, (item) => String(item.tag || '').trim().toLowerCase()))
+        setWatchHits(dedupeBy(watchHitList, (item) => String(item.watch_hit || '').trim().toLowerCase()))
       } catch (err) {
         setError(err.message || 'Failed to load story filters.')
       } finally {
@@ -73,23 +98,33 @@ export default function StoriesPage() {
   }, [])
 
   useEffect(() => {
-    const timer = window.setTimeout(async () => {
+    let cancelled = false
+    async function loadStories() {
       try {
         setLoadingResults(true)
         setError('')
-        const payload = await api.queryStories(filters)
-        setResults(payload.items || [])
+        const payload = await api.queryStories(appliedFilters)
+        if (!cancelled) {
+          setResults(payload.items || [])
+        }
       } catch (err) {
-        setError(err.message || 'Failed to load stories.')
+        if (!cancelled) {
+          setError(err.message || 'Failed to load stories.')
+          setResults([])
+        }
       } finally {
-        setLoadingResults(false)
+        if (!cancelled) {
+          setLoadingResults(false)
+        }
       }
-    }, 250)
-    return () => window.clearTimeout(timer)
-  }, [filters])
+    }
+    loadStories()
+    return () => {
+      cancelled = true
+    }
+  }, [appliedFilters])
 
-  const heading = useMemo(() => buildHeading(filters, clusters), [clusters, filters])
-  const normalizeMultiValue = (value) => (Array.isArray(value) ? value : String(value).split(',').filter(Boolean))
+  const heading = useMemo(() => buildHeading(appliedFilters, clusters), [appliedFilters, clusters])
 
   return (
     <Stack spacing={3}>
@@ -217,6 +252,13 @@ export default function StoriesPage() {
               <ToggleButton value="desc">Newest first</ToggleButton>
               <ToggleButton value="asc">Oldest first</ToggleButton>
             </ToggleButtonGroup>
+            <LoadingButton
+              variant="contained"
+              loading={loadingResults}
+              onClick={() => setAppliedFilters({ ...filters, tags: [...filters.tags], watch_hits: [...filters.watch_hits] })}
+            >
+              Apply filters
+            </LoadingButton>
           </Stack>
         </Stack>
       </Paper>

@@ -14,6 +14,21 @@ export default function App() {
   const [metrics, setMetrics] = useState(null)
   const [archiveLoading, setArchiveLoading] = useState(true)
   const [archiveError, setArchiveError] = useState('')
+  const [recentQueries, setRecentQueries] = useState([])
+  const [queriesLoading, setQueriesLoading] = useState(true)
+
+  const refreshRecentQueries = async () => {
+    try {
+      setQueriesLoading(true)
+      const items = await api.listQueries({ days: 14, limit: 20 })
+      setRecentQueries(items)
+    } catch (err) {
+      console.warn('failed to refresh query history', err)
+      setRecentQueries([])
+    } finally {
+      setQueriesLoading(false)
+    }
+  }
 
   useEffect(() => {
     console.info('[dashboard build]', __APP_BUILD_SHA__, __APP_BUILD_TIME__)
@@ -28,6 +43,7 @@ export default function App() {
         const [briefList, metricPayload] = await Promise.all([api.listBriefs(), api.getMetrics()])
         setBriefs(briefList)
         setMetrics(metricPayload)
+        refreshRecentQueries()
         const initialDate = briefList[0]?.date || ''
         setSelectedDate(initialDate)
         if (initialDate) {
@@ -70,6 +86,8 @@ export default function App() {
         briefs={briefs}
         selectedDate={selectedDate}
         onSelectBrief={handleSelectBrief}
+        recentQueries={recentQueries}
+        queriesLoading={queriesLoading}
       />
       <Container maxWidth="xl" sx={{ py: { xs: 2.5, md: 4 } }}>
         {archiveError ? <Alert severity="error" sx={{ mb: 2.5 }}>{archiveError}</Alert> : null}
@@ -92,7 +110,7 @@ export default function App() {
               )
             }
           />
-          <Route path="/ask" element={<QueryPage />} />
+          <Route path="/ask" element={<QueryPage queries={recentQueries} queriesLoading={queriesLoading} refreshQueries={refreshRecentQueries} />} />
           <Route path="/stories" element={<StoriesPage />} />
         </Routes>
         <Box component="footer" sx={{ mt: 4, pb: 2, color: 'text.secondary', fontSize: 12 }}>
