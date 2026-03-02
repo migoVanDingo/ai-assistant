@@ -346,9 +346,17 @@ Single-command deploy:
 make deploy-dashboard
 ```
 
+This deploys the current local checkout and does not pull from Git by default.
+
+To pull first, use:
+
+```bash
+make deploy-dashboard-pull
+```
+
 This script will:
 
-- `git pull --ff-only`
+- optionally run `git pull --ff-only` when using `make deploy-dashboard-pull`
 - install Python and frontend dependencies
 - build the dashboard with an embedded build SHA/timestamp
 - restart the FastAPI backend and static frontend server

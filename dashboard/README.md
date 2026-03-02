@@ -92,10 +92,24 @@ Recommended production deploy:
 make deploy-dashboard
 ```
 
+This deploys the current local checkout and does not pull from Git by default.
+
+If you want to update from the remote first, use:
+
+```bash
+make deploy-dashboard-pull
+```
+
 This builds the frontend into `dashboard/dist`, embeds the build SHA/timestamp, starts:
 
 - FastAPI on `127.0.0.1:8000`
 - the included static SPA server on `127.0.0.1:4173`
+
+Git update behavior:
+
+- `make deploy-dashboard`: deploy current local files only
+- `make deploy-dashboard-pull`: run `git pull --ff-only` first, then deploy
+- shell equivalent: `DEPLOY_PULL=1 ./scripts/deploy_dashboard.sh`
 
 Recommended Tailscale Serve config shape:
 

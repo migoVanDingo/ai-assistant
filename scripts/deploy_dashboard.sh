@@ -83,7 +83,7 @@ verify_bundle_strings() {
 
 cd "$PROJECT_DIR"
 
-if [ "${DEPLOY_SKIP_PULL:-0}" != "1" ]; then
+if [ "${DEPLOY_PULL:-0}" = "1" ]; then
   log "Pulling latest changes"
   git pull --ff-only
 fi
