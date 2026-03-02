@@ -52,6 +52,11 @@ cp .env.example .env
 - `BRIEFBOT_GREETING_NAME` (optional greeting name in the nightly Telegram message; default `there`)
 - `OPENCLAW_BIN` (optional override for the OpenClaw CLI used by the nightly script)
 - `DASHBOARD_BRIEFS_URL` (optional URL included in the nightly Telegram message)
+- `PROJECT_DIR` (optional override for the nightly script project root)
+- `BRIEFBOT_DATA_DIR` (optional override for the nightly script data root)
+- `VITE_APP_BASE` (optional dashboard frontend base path)
+- `VITE_API_BASE_URL` (optional full-origin dashboard API base URL)
+- `VITE_ALLOWED_HOSTS` (optional comma-separated Vite dev-server allowed hosts)
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
 

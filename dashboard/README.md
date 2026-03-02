@@ -30,7 +30,12 @@ The frontend API helper intentionally uses absolute `/api/*` paths. For local de
 `VITE_API_BASE_URL` is optional and is only honored when it is a full origin such as:
 
 - `http://127.0.0.1:8000`
-- `https://node1.tailxxxx.ts.net`
+- `https://your-node.ts.net`
+
+`VITE_ALLOWED_HOSTS` is optional and can be set to a comma-separated list of dev-server hostnames, for example:
+
+- `VITE_ALLOWED_HOSTS=your-node.ts.net`
+- `VITE_ALLOWED_HOSTS=your-node.ts.net,localhost`
 
 Do not set:
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 export TZ="America/New_York"
 
-PROJECT_DIR="${PROJECT_DIR:-/home/node1/Projects/ai-assistant}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 BRIEFBOT_DIR="${BRIEFBOT_DIR:-$PROJECT_DIR}"
 ENV_FILE="${BRIEFBOT_ENV_FILE:-$PROJECT_DIR/.env}"
 
@@ -34,7 +34,7 @@ export BRIEFBOT_SUMMARY_DIR="$SUMMARY_DIR"
 # - username: @myhandle
 MESSAGE_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-${OPENCLAW_TELEGRAM_TARGET:-${TELEGRAM_TARGET:-}}}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
-DASHBOARD_BRIEFS_URL="${DASHBOARD_BRIEFS_URL}"
+DASHBOARD_BRIEFS_URL="${DASHBOARD_BRIEFS_URL:-}"
 GREETING_NAME="${BRIEFBOT_GREETING_NAME:-there}"
 
 mkdir -p "$LOG_DIR"
@@ -165,9 +165,13 @@ PY
     return 1
   fi
 
-  notify "✅ Good morning ${GREETING_NAME}! Your daily brief is ready to view.
+  local message="✅ Good morning ${GREETING_NAME}! Your daily brief is ready to view."
+  if [ -n "${DASHBOARD_BRIEFS_URL:-}" ]; then
+    message="${message}
 
-$DASHBOARD_BRIEFS_URL"
+${DASHBOARD_BRIEFS_URL}"
+  fi
+  notify "$message"
 
   log "OK: wrote $brief_path"
 }
