@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
+from briefbot.article import get_article_for_item
 from briefbot.llm import generate_text
+from briefbot.llm import summarize as summarize_article_text
 
 from .dao import BriefbotDAO, serialize_rows
 
 TOOLS = {
+    "summarize_article": {
+        "description": "Find the best matching item, fetch article text, and return an LLM summary grounded in the article content.",
+        "args": {"query": "str"},
+    },
     "get_trending_topics": {
         "description": "Get top topic profiles for a recent window.",
         "args": {"days": "int", "limit": "int"},
@@ -91,6 +98,17 @@ def _render_named_section(title: str, body: str) -> str:
 
 
 def render_result_markdown(tool_name: str, result: Any) -> str | None:
+    if tool_name == "summarize_article" and isinstance(result, dict):
+        summary_md = (result.get("summary_md") or "").strip()
+        item = result.get("item") or {}
+        title = item.get("title") or "(untitled)"
+        url = item.get("canonical_url") or item.get("url") or ""
+        heading = f"### Summary\n**Title:** [{title}]({url})" if url else f"### Summary\n**Title:** {title}"
+        if summary_md:
+            return f"{heading}\n\n{summary_md}"
+        if result.get("error"):
+            return f"{heading}\n\n{result['error']}"
+
     if tool_name == "search_items" and isinstance(result, list):
         return _render_named_section("Items", render_items_markdown(result))
 
@@ -161,6 +179,9 @@ class DashboardLLMAdapter:
 
     def _fallback_plan(self, query: str) -> dict[str, Any]:
         low = query.lower()
+        if "summarize " in low or "summarise " in low or low.startswith("summary of "):
+            clean = re.sub(r"^(please\s+)?(summarize|summarise|summary of)\s+", "", query, flags=re.I).strip()
+            return {"tool": "summarize_article", "arguments": {"query": clean or query}}
         if "all items" in low or "all stories" in low:
             return {"tool": "search_items", "arguments": {"query": "", "days": 30, "limit": 20}}
         if "related" in low:
@@ -172,6 +193,69 @@ class DashboardLLMAdapter:
         if "trend" in low:
             return {"tool": "get_trend_clusters", "arguments": {"days": 30, "limit": 20}}
         return {"tool": "search_items", "arguments": {"query": query, "days": 30, "limit": 20}}
+
+    def _summarize_article(self, query: str) -> dict[str, Any]:
+        item = self.dao.find_best_item_for_query(query=query, days=365, limit=25)
+        if not item:
+            return {
+                "item": None,
+                "summary_md": "",
+                "error": f"No matching item found for: {query}",
+            }
+
+        cache_dir = os.getenv("BRIEFBOT_CACHE_DIR", "data/article_cache").strip() or "data/article_cache"
+        max_chars_raw = os.getenv("BRIEFBOT_MAX_CHARS_PER_ARTICLE", "12000").strip() or "12000"
+        try:
+            max_chars = int(max_chars_raw)
+        except ValueError:
+            max_chars = 12000
+
+        fetch_error = None
+        try:
+            article = get_article_for_item(
+                item=item,
+                cache_dir=cache_dir,
+                force=False,
+                max_chars=max_chars,
+            )
+        except Exception as exc:
+            fetch_error = str(exc)
+            fallback_text = item.get("summary") or item.get("title") or ""
+            article = {
+                "url": item.get("canonical_url") or item.get("url"),
+                "text": fallback_text,
+                "llm_text": fallback_text[:max_chars],
+                "snippet": fallback_text[:240],
+                "cached": False,
+                "content_hash": None,
+            }
+        metadata = {
+            "title": item.get("title"),
+            "source_name": item.get("source_name"),
+            "source_id": item.get("source_id"),
+            "published_at": item.get("published_at"),
+            "url": item.get("canonical_url") or item.get("url"),
+            "tags": item.get("tags") or [],
+            "source_category": item.get("source_category"),
+        }
+        summary_md = summarize_article_text(
+            text=(article.get("llm_text") or article.get("text") or item.get("summary") or "")[:max_chars],
+            metadata=metadata,
+            provider=self.provider,
+            model=self.model,
+            max_words=400,
+        )
+        return {
+            "item": item,
+            "article": {
+                "url": article.get("url") or metadata["url"],
+                "snippet": article.get("snippet") or "",
+                "cached": bool(article.get("cached")),
+                "content_hash": article.get("content_hash"),
+            },
+            "summary_md": summary_md,
+            "error": f"Article fetch fell back to stored metadata: {fetch_error}" if fetch_error else None,
+        }
 
     def answer_query(self, query: str) -> dict[str, Any]:
         low_query = query.lower()
@@ -192,6 +276,11 @@ class DashboardLLMAdapter:
             tool_name = ""
             arguments = {}
 
+        if "summarize " in low_query or "summarise " in low_query or low_query.startswith("summary of "):
+            plan = self._fallback_plan(query)
+            tool_name = plan["tool"]
+            arguments = plan["arguments"]
+
         if "all items" in low_query or "all stories" in low_query:
             tool_name = "search_items"
             arguments = {"query": "", "days": 30, "limit": 20}
@@ -201,15 +290,18 @@ class DashboardLLMAdapter:
             tool_name = plan["tool"]
             arguments = plan["arguments"]
 
-        tool_result = self.dao.execute_tool(tool_name, arguments)
-        result_payload = tool_result["result"]
-        if isinstance(result_payload, list):
-            result_payload = serialize_rows(result_payload)
-        elif isinstance(result_payload, dict):
-            result_payload = {
-                key: serialize_rows(value) if isinstance(value, list) else value
-                for key, value in result_payload.items()
-            }
+        if tool_name == "summarize_article":
+            result_payload = self._summarize_article(arguments.get("query", query))
+        else:
+            tool_result = self.dao.execute_tool(tool_name, arguments)
+            result_payload = tool_result["result"]
+            if isinstance(result_payload, list):
+                result_payload = serialize_rows(result_payload)
+            elif isinstance(result_payload, dict):
+                result_payload = {
+                    key: serialize_rows(value) if isinstance(value, list) else value
+                    for key, value in result_payload.items()
+                }
         deterministic_answer = render_result_markdown(tool_name, result_payload)
         if deterministic_answer:
             return {

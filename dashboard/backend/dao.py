@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from briefbot.resolve import rank_items_for_query
+
 
 @dataclass
 class DashboardConfig:
@@ -306,6 +308,13 @@ class BriefbotDAO:
         )
         return {"entity": entity, "items": items, "clusters": clusters}
 
+    def find_best_item_for_query(self, query: str, days: int = 365, limit: int = 25) -> dict[str, Any] | None:
+        candidates = self.search_items(query=query, days=days, limit=limit)
+        if not candidates:
+            return None
+        ranked = rank_items_for_query(query, serialize_rows(candidates))
+        return ranked[0] if ranked else None
+
     def list_source_names(self) -> list[str]:
         rows = self._rows(
             """
@@ -458,6 +467,8 @@ class BriefbotDAO:
             return {"tool": tool_name, "result": self.get_related_stories(**arguments)}
         if tool_name == "get_news_about":
             return {"tool": tool_name, "result": self.get_news_about(**arguments)}
+        if tool_name == "find_best_item_for_query":
+            return {"tool": tool_name, "result": self.find_best_item_for_query(**arguments)}
         raise ValueError(f"Unsupported tool: {tool_name}")
 
 
