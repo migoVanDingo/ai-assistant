@@ -1,0 +1,4 @@
+interface:
+  display_name: "Briefbot Archive Query"
+  short_description: "Query Briefbot archive over HTTP"
+  default_prompt: "Use $briefbot-archive-query to query the local Briefbot API for stories, date windows, and article summaries."
