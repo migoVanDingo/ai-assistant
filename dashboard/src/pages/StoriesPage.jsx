@@ -4,7 +4,6 @@ import {
   Box,
   CircularProgress,
   FormControl,
-  IconButton,
   InputLabel,
   ListItemText,
   MenuItem,
@@ -16,11 +15,8 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material'
-import ThumbDownAltOutlinedIcon from '@mui/icons-material/ThumbDownAltOutlined'
-import ThumbDownAltIcon from '@mui/icons-material/ThumbDownAlt'
-import ThumbUpAltOutlinedIcon from '@mui/icons-material/ThumbUpAltOutlined'
-import ThumbUpAltIcon from '@mui/icons-material/ThumbUpAlt'
 import { useEffect, useMemo, useState } from 'react'
+import StoryFeedbackList from '../components/StoryFeedbackList'
 import { api } from '../services/api'
 
 const LIMIT_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
@@ -51,22 +47,13 @@ function buildHeading(filters, clusters) {
 export default function StoriesPage() {
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [loadingResults, setLoadingResults] = useState(true)
-  const [loadingSections, setLoadingSections] = useState(true)
   const [error, setError] = useState('')
-  const [sectionError, setSectionError] = useState('')
+  const [feedbackError, setFeedbackError] = useState('')
   const [sources, setSources] = useState([])
   const [clusters, setClusters] = useState([])
   const [tags, setTags] = useState([])
   const [watchHits, setWatchHits] = useState([])
   const [results, setResults] = useState([])
-  const [sections, setSections] = useState({
-    top_links: [],
-    trending: [],
-    suggested_links: [],
-    other_links: [],
-  })
-  const [feedbackById, setFeedbackById] = useState({})
-  const [feedbackSaving, setFeedbackSaving] = useState({})
   const [filters, setFilters] = useState({
     source_name: '',
     from_date: '',
@@ -89,22 +76,6 @@ export default function StoriesPage() {
   })
 
   const normalizeMultiValue = (value) => (Array.isArray(value) ? value : String(value).split(',').filter(Boolean))
-
-  const mergeFeedbackState = (items) => {
-    setFeedbackById((current) => {
-      const next = { ...current }
-      for (const item of items || []) {
-        const itemId = item?.item_id
-        if (!itemId || next[itemId]) continue
-        next[itemId] = {
-          vote: Number(item.feedback_vote || 0),
-          score: Number(item.feedback_score || 0),
-          updated_at: item.feedback_updated_at || null,
-        }
-      }
-      return next
-    })
-  }
 
   useEffect(() => {
     async function loadOptions() {
@@ -132,52 +103,13 @@ export default function StoriesPage() {
 
   useEffect(() => {
     let cancelled = false
-    async function loadSections() {
-      try {
-        setLoadingSections(true)
-        setSectionError('')
-        const payload = await api.listStorySections({ section_limit: 12 })
-        if (cancelled) return
-        const nextSections = {
-          top_links: payload.top_links || [],
-          trending: payload.trending || [],
-          suggested_links: payload.suggested_links || [],
-          other_links: payload.other_links || [],
-        }
-        setSections(nextSections)
-        mergeFeedbackState([
-          ...nextSections.top_links,
-          ...nextSections.trending,
-          ...nextSections.suggested_links,
-          ...nextSections.other_links,
-        ])
-      } catch (err) {
-        if (!cancelled) {
-          setSectionError(err.message || 'Failed to load story sections.')
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingSections(false)
-        }
-      }
-    }
-    loadSections()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
     async function loadStories() {
       try {
         setLoadingResults(true)
         setError('')
         const payload = await api.queryStories(appliedFilters)
         if (!cancelled) {
-          const items = payload.items || []
-          setResults(items)
-          mergeFeedbackState(items)
+          setResults(payload.items || [])
         }
       } catch (err) {
         if (!cancelled) {
@@ -198,99 +130,6 @@ export default function StoriesPage() {
 
   const heading = useMemo(() => buildHeading(appliedFilters, clusters), [appliedFilters, clusters])
 
-  const getFeedback = (item) => {
-    const itemId = item?.item_id
-    if (!itemId) return { vote: 0, score: 0 }
-    return feedbackById[itemId] || {
-      vote: Number(item.feedback_vote || 0),
-      score: Number(item.feedback_score || 0),
-    }
-  }
-
-  const handleStoryVote = async (item, section, direction) => {
-    const itemId = item?.item_id
-    if (!itemId) return
-    const current = getFeedback(item)
-    const nextVote = current.vote === direction ? 0 : direction
-    const optimistic = {
-      vote: nextVote,
-      score: Number(current.score || 0) + (nextVote - Number(current.vote || 0)),
-      updated_at: new Date().toISOString(),
-    }
-    setFeedbackById((state) => ({ ...state, [itemId]: optimistic }))
-    setFeedbackSaving((state) => ({ ...state, [itemId]: true }))
-    try {
-      const updated = await api.setStoryFeedback({ item_id: itemId, vote: nextVote, section })
-      setFeedbackById((state) => ({
-        ...state,
-        [itemId]: {
-          vote: Number(updated.vote || 0),
-          score: Number(updated.score || 0),
-          updated_at: updated.updated_at || null,
-        },
-      }))
-    } catch (err) {
-      setFeedbackById((state) => ({ ...state, [itemId]: current }))
-      setSectionError(err.message || 'Failed to submit feedback.')
-    } finally {
-      setFeedbackSaving((state) => ({ ...state, [itemId]: false }))
-    }
-  }
-
-  const renderStoryList = (items, sectionKey) => (
-    <ol style={{ margin: 0, paddingLeft: '1.5rem' }}>
-      {(items || []).map((item) => {
-        const feedback = getFeedback(item)
-        const saving = Boolean(feedbackSaving[item.item_id])
-        return (
-          <li key={item.item_id} style={{ marginBottom: '1rem' }}>
-            <Stack spacing={0.5}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{item.title || '(untitled)'}</Typography>
-              {item.canonical_url || item.url ? (
-                <Typography
-                  component="a"
-                  href={item.canonical_url || item.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  variant="body2"
-                  sx={{ color: 'primary.main', wordBreak: 'break-all' }}
-                >
-                  {item.canonical_url || item.url}
-                </Typography>
-              ) : null}
-              <Typography variant="body2" color="text.secondary">
-                {item.summary || 'No description available.'}
-              </Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <IconButton
-                  size="small"
-                  color={feedback.vote > 0 ? 'success' : 'default'}
-                  onClick={() => handleStoryVote(item, sectionKey, 1)}
-                  disabled={saving}
-                  aria-label="Thumbs up"
-                >
-                  {feedback.vote > 0 ? <ThumbUpAltIcon fontSize="small" /> : <ThumbUpAltOutlinedIcon fontSize="small" />}
-                </IconButton>
-                <IconButton
-                  size="small"
-                  color={feedback.vote < 0 ? 'error' : 'default'}
-                  onClick={() => handleStoryVote(item, sectionKey, -1)}
-                  disabled={saving}
-                  aria-label="Thumbs down"
-                >
-                  {feedback.vote < 0 ? <ThumbDownAltIcon fontSize="small" /> : <ThumbDownAltOutlinedIcon fontSize="small" />}
-                </IconButton>
-                <Typography variant="caption" color="text.secondary">
-                  score {Number(feedback.score || 0)}
-                </Typography>
-              </Stack>
-            </Stack>
-          </li>
-        )
-      })}
-    </ol>
-  )
-
   return (
     <Stack spacing={3}>
       <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
@@ -299,55 +138,6 @@ export default function StoriesPage() {
           <Typography color="text.secondary">
             Deterministic browsing over archived items, with source, cluster, tag, and watch-hit filters.
           </Typography>
-        </Stack>
-      </Paper>
-
-      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6">Top links</Typography>
-          {loadingSections ? (
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <CircularProgress size={20} />
-              <Typography color="text.secondary">Loading sections...</Typography>
-            </Stack>
-          ) : null}
-          {!loadingSections && sections.top_links.length > 0 ? renderStoryList(sections.top_links, 'top_links') : null}
-          {!loadingSections && sections.top_links.length === 0 ? (
-            <Typography color="text.secondary">No top links available.</Typography>
-          ) : null}
-        </Stack>
-      </Paper>
-
-      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6">Trending</Typography>
-          {!loadingSections && sections.trending.length > 0 ? renderStoryList(sections.trending, 'trending') : null}
-          {!loadingSections && sections.trending.length === 0 ? (
-            <Typography color="text.secondary">No trending links available.</Typography>
-          ) : null}
-        </Stack>
-      </Paper>
-
-      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6">Suggested links</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Personalized from your article thumbs feedback. Suggestions consider links from the last 7 days.
-          </Typography>
-          {!loadingSections && sections.suggested_links.length > 0 ? renderStoryList(sections.suggested_links, 'suggested_links') : null}
-          {!loadingSections && sections.suggested_links.length === 0 ? (
-            <Typography color="text.secondary">No suggested links yet. Add thumbs up/down on stories to train this section.</Typography>
-          ) : null}
-        </Stack>
-      </Paper>
-
-      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6">Other links</Typography>
-          {!loadingSections && sections.other_links.length > 0 ? renderStoryList(sections.other_links, 'other_links') : null}
-          {!loadingSections && sections.other_links.length === 0 ? (
-            <Typography color="text.secondary">No additional links available.</Typography>
-          ) : null}
         </Stack>
       </Paper>
 
@@ -483,7 +273,7 @@ export default function StoriesPage() {
             <Typography variant="overline" color="text.secondary">Search focus</Typography>
             <Typography variant="h6">{heading}</Typography>
           </div>
-          {sectionError ? <Alert severity="warning">{sectionError}</Alert> : null}
+          {feedbackError ? <Alert severity="warning">{feedbackError}</Alert> : null}
           {error ? <Typography color="error">{error}</Typography> : null}
           {loadingResults ? (
             <Stack direction="row" spacing={1.5} alignItems="center">
@@ -495,7 +285,9 @@ export default function StoriesPage() {
             <Typography color="text.secondary">No stories matched these filters.</Typography>
           ) : null}
           {!loadingResults && results.length > 0 ? (
-            <Box>{renderStoryList(results, 'other_links')}</Box>
+            <Box>
+              <StoryFeedbackList items={results} sectionKey="other_links" onError={setFeedbackError} />
+            </Box>
           ) : null}
         </Stack>
       </Paper>
