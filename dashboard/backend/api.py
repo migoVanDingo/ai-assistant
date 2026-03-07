@@ -37,6 +37,12 @@ class StoriesQuery(BaseModel):
     order: str = "desc"
 
 
+class StoryFeedbackRequest(BaseModel):
+    item_id: str
+    vote: int = Field(ge=-1, le=1)
+    section: str = "other_links"
+
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 if load_dotenv:
     load_dotenv(dotenv_path=os.getenv("BRIEFBOT_ENV_FILE", BASE_DIR / ".env"))
@@ -264,6 +270,28 @@ def query_stories(req: StoriesQuery) -> dict[str, Any]:
             watch_hits=req.watch_hits,
             order=req.order,
         )
+    finally:
+        dao.close()
+
+
+@app.get("/api/stories/sections")
+@app.get("/stories/sections")
+def list_story_sections(section_limit: int = 12) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.list_story_sections(section_limit=section_limit)
+    finally:
+        dao.close()
+
+
+@app.post("/api/stories/feedback")
+@app.post("/stories/feedback")
+def set_story_feedback(req: StoryFeedbackRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.set_story_feedback(item_id=req.item_id, vote=req.vote, section=req.section)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         dao.close()
 

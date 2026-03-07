@@ -47,5 +47,12 @@ export const api = {
   listStoryClusters: () => request('/api/stories/clusters'),
   listStoryTags: () => request('/api/stories/tags'),
   listStoryWatchHits: () => request('/api/stories/watch-hits'),
+  listStorySections: (params = {}) => {
+    const search = new URLSearchParams()
+    if (params.section_limit) search.set('section_limit', params.section_limit)
+    const suffix = search.toString() ? `?${search.toString()}` : ''
+    return request(`/api/stories/sections${suffix}`)
+  },
+  setStoryFeedback: (payload) => request('/api/stories/feedback', { method: 'POST', body: JSON.stringify(payload) }),
   queryStories: (payload) => request('/api/stories', { method: 'POST', body: JSON.stringify(payload) }),
 }

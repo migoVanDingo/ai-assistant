@@ -48,6 +48,30 @@ class BriefbotDAO:
 
             CREATE INDEX IF NOT EXISTS idx_dashboard_queries_created_at
             ON dashboard_queries(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS dashboard_story_feedback (
+                item_id TEXT PRIMARY KEY,
+                vote INTEGER NOT NULL DEFAULT 0,
+                score REAL NOT NULL DEFAULT 0.0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS dashboard_story_feedback_events (
+                id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                section TEXT NOT NULL,
+                signal REAL NOT NULL,
+                source_name TEXT,
+                cluster_id TEXT,
+                tags_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_story_feedback_events_created_at
+            ON dashboard_story_feedback_events(created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_story_feedback_events_item_id
+            ON dashboard_story_feedback_events(item_id);
             """
         )
         self.conn.commit()
@@ -442,6 +466,9 @@ class BriefbotDAO:
             """,
             tuple(params + [safe_limit]),
         )
+        items = serialize_rows(rows)
+        feedback_map = self.get_story_feedback_map([item.get("item_id") for item in items if item.get("item_id")])
+        self._attach_feedback(items, feedback_map)
         return {
             "filters": {
                 "source_name": source_name,
@@ -453,8 +480,270 @@ class BriefbotDAO:
                 "watch_hits": list(watch_hits or []),
                 "order": "asc" if safe_order == "ASC" else "desc",
             },
-            "items": serialize_rows(rows),
+            "items": items,
         }
+
+    def list_story_sections(
+        self,
+        *,
+        section_limit: int = 12,
+        top_days: int = 2,
+        trending_days: int = 7,
+        suggested_days: int = 7,
+        other_days: int = 7,
+    ) -> dict[str, list[dict[str, Any]]]:
+        safe_limit = min(25, max(5, int(section_limit)))
+        top_rows = self._rows(
+            """
+            SELECT DISTINCT
+                i.item_id, i.title, i.url, i.canonical_url, i.published_at, i.fetched_at,
+                i.source_name, i.summary, i.score, i.tags_json, i.watch_hits_json, m.cluster_id
+            FROM items i
+            LEFT JOIN cluster_memberships m ON m.item_id = i.item_id
+            WHERE datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)
+            ORDER BY i.score DESC, datetime(COALESCE(i.published_at, i.fetched_at)) DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(top_days))} days", safe_limit),
+        )
+        trending_rows = self._rows(
+            """
+            SELECT
+                i.item_id, i.title, i.url, i.canonical_url, i.published_at, i.fetched_at,
+                i.source_name, i.summary, i.score, i.tags_json, i.watch_hits_json, m.cluster_id,
+                c.trend_score
+            FROM items i
+            JOIN cluster_memberships m ON m.item_id = i.item_id
+            JOIN clusters c ON c.cluster_id = m.cluster_id
+            WHERE datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)
+              AND datetime(COALESCE(c.last_seen_at, c.created_at)) >= datetime('now', ?)
+            ORDER BY c.trend_score DESC, i.score DESC, datetime(COALESCE(i.published_at, i.fetched_at)) DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(trending_days))} days", f"-{max(1, int(trending_days))} days", safe_limit * 3),
+        )
+        trending_items = self._dedupe_items_preserve_order(serialize_rows(trending_rows), limit=safe_limit)
+
+        other_rows = self._rows(
+            """
+            SELECT DISTINCT
+                i.item_id, i.title, i.url, i.canonical_url, i.published_at, i.fetched_at,
+                i.source_name, i.summary, i.score, i.tags_json, i.watch_hits_json, m.cluster_id
+            FROM items i
+            LEFT JOIN cluster_memberships m ON m.item_id = i.item_id
+            WHERE datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)
+            ORDER BY datetime(COALESCE(i.published_at, i.fetched_at)) DESC, i.score DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(other_days))} days", safe_limit),
+        )
+        suggested_items = self._compute_suggested_links(days=suggested_days, limit=safe_limit)
+
+        sections = {
+            "top_links": serialize_rows(top_rows),
+            "trending": trending_items,
+            "suggested_links": suggested_items,
+            "other_links": serialize_rows(other_rows),
+        }
+        all_items: list[dict[str, Any]] = []
+        for values in sections.values():
+            all_items.extend(values)
+        feedback_map = self.get_story_feedback_map([item.get("item_id") for item in all_items if item.get("item_id")])
+        for values in sections.values():
+            self._attach_feedback(values, feedback_map)
+        return sections
+
+    def get_story_feedback_map(self, item_ids: list[str]) -> dict[str, dict[str, Any]]:
+        unique_ids = sorted({str(item_id) for item_id in item_ids if item_id})
+        if not unique_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(unique_ids))
+        rows = self._rows(
+            f"""
+            SELECT item_id, vote, score, updated_at
+            FROM dashboard_story_feedback
+            WHERE item_id IN ({placeholders})
+            """,
+            tuple(unique_ids),
+        )
+        out = {row["item_id"]: row for row in rows}
+        for item_id in unique_ids:
+            out.setdefault(item_id, {"item_id": item_id, "vote": 0, "score": 0.0, "updated_at": None})
+        return out
+
+    def set_story_feedback(self, *, item_id: str, vote: int, section: str) -> dict[str, Any]:
+        safe_vote = int(vote)
+        if safe_vote not in (-1, 0, 1):
+            raise ValueError("vote must be -1, 0, or 1")
+        safe_section = (section or "other_links").strip().lower() or "other_links"
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+        row = self._row(
+            """
+            SELECT vote, score
+            FROM dashboard_story_feedback
+            WHERE item_id = ?
+            """,
+            (item_id,),
+        )
+        prev_vote = int((row or {}).get("vote") or 0)
+        prev_score = float((row or {}).get("score") or 0.0)
+        delta_vote = safe_vote - prev_vote
+        new_score = prev_score + delta_vote
+
+        item = self._row(
+            """
+            SELECT i.item_id, i.source_name, i.tags_json, m.cluster_id
+            FROM items i
+            LEFT JOIN cluster_memberships m ON m.item_id = i.item_id
+            WHERE i.item_id = ?
+            """,
+            (item_id,),
+        )
+        if not item:
+            raise ValueError("item not found")
+
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_story_feedback(item_id, vote, score, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(item_id) DO UPDATE SET
+              vote=excluded.vote,
+              score=excluded.score,
+              updated_at=excluded.updated_at
+            """,
+            (item_id, safe_vote, new_score, now),
+        )
+
+        if delta_vote != 0:
+            section_weight = self._section_feedback_weight(safe_section)
+            signal = float(delta_vote) * section_weight
+            self.conn.execute(
+                """
+                INSERT INTO dashboard_story_feedback_events(
+                    id, item_id, section, signal, source_name, cluster_id, tags_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    item_id,
+                    safe_section,
+                    signal,
+                    item.get("source_name"),
+                    item.get("cluster_id"),
+                    item.get("tags_json"),
+                    now,
+                ),
+            )
+        self.conn.commit()
+        return {
+            "item_id": item_id,
+            "vote": safe_vote,
+            "score": new_score,
+            "updated_at": now,
+        }
+
+    def _attach_feedback(self, items: list[dict[str, Any]], feedback_map: dict[str, dict[str, Any]]) -> None:
+        for item in items:
+            state = feedback_map.get(item.get("item_id")) or {"vote": 0, "score": 0.0}
+            item["feedback_vote"] = int(state.get("vote") or 0)
+            item["feedback_score"] = float(state.get("score") or 0.0)
+            item["feedback_updated_at"] = state.get("updated_at")
+
+    def _section_feedback_weight(self, section: str) -> float:
+        return 3.0 if section == "suggested_links" else 1.0
+
+    def _load_preference_profile(self, max_age_days: int = 60) -> dict[str, dict[str, float]]:
+        rows = self._rows(
+            """
+            SELECT source_name, cluster_id, tags_json, signal
+            FROM dashboard_story_feedback_events
+            WHERE datetime(created_at) >= datetime('now', ?)
+            ORDER BY datetime(created_at) DESC
+            """,
+            (f"-{max(7, int(max_age_days))} days",),
+        )
+        source_scores: dict[str, float] = {}
+        cluster_scores: dict[str, float] = {}
+        tag_scores: dict[str, float] = {}
+        for row in rows:
+            signal = float(row.get("signal") or 0.0)
+            source_name = (row.get("source_name") or "").strip().lower()
+            cluster_id = (row.get("cluster_id") or "").strip()
+            if source_name:
+                source_scores[source_name] = source_scores.get(source_name, 0.0) + signal
+            if cluster_id:
+                cluster_scores[cluster_id] = cluster_scores.get(cluster_id, 0.0) + signal
+            for raw_tag in _json_loads(row.get("tags_json"), []):
+                tag = str(raw_tag).strip().lower()
+                if not tag:
+                    continue
+                tag_scores[tag] = tag_scores.get(tag, 0.0) + signal
+        return {"source": source_scores, "cluster": cluster_scores, "tag": tag_scores}
+
+    def _compute_suggested_links(self, *, days: int = 7, limit: int = 12) -> list[dict[str, Any]]:
+        profile = self._load_preference_profile(max_age_days=60)
+        rows = self._rows(
+            """
+            SELECT DISTINCT
+                i.item_id, i.title, i.url, i.canonical_url, i.published_at, i.fetched_at,
+                i.source_name, i.summary, i.score, i.tags_json, i.watch_hits_json, m.cluster_id
+            FROM items i
+            LEFT JOIN cluster_memberships m ON m.item_id = i.item_id
+            WHERE datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)
+            ORDER BY datetime(COALESCE(i.published_at, i.fetched_at)) DESC, i.score DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(days))} days", max(int(limit) * 12, 80)),
+        )
+        items = serialize_rows(rows)
+        if not items:
+            return []
+        state_map = self.get_story_feedback_map([item.get("item_id") for item in items if item.get("item_id")])
+
+        scored: list[dict[str, Any]] = []
+        for item in items:
+            item_id = item.get("item_id")
+            if not item_id:
+                continue
+            feedback_state = state_map.get(item_id) or {"vote": 0}
+            if int(feedback_state.get("vote") or 0) < 0:
+                continue
+            source_key = str(item.get("source_name") or "").strip().lower()
+            cluster_key = str(item.get("cluster_id") or "").strip()
+            tag_keys = [str(tag).strip().lower() for tag in item.get("tags") or [] if str(tag).strip()]
+            pref_score = 0.0
+            pref_score += profile["source"].get(source_key, 0.0) * 0.45
+            pref_score += profile["cluster"].get(cluster_key, 0.0) * 0.35
+            if tag_keys:
+                pref_score += sum(profile["tag"].get(tag, 0.0) for tag in tag_keys) * 0.20 / len(tag_keys)
+            base_score = float(item.get("score") or 0.0)
+            item["suggested_score"] = round((pref_score * 2.0) + (base_score * 0.25), 4)
+            scored.append(item)
+
+        scored.sort(
+            key=lambda item: (
+                float(item.get("suggested_score") or 0.0),
+                float(item.get("score") or 0.0),
+                str(item.get("published_at") or item.get("fetched_at") or ""),
+            ),
+            reverse=True,
+        )
+        return self._dedupe_items_preserve_order(scored, limit=limit)
+
+    def _dedupe_items_preserve_order(self, items: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            item_id = str(item.get("item_id") or "")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            out.append(item)
+            if len(out) >= int(limit):
+                break
+        return out
 
     def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if tool_name == "get_trending_topics":
