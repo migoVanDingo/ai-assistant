@@ -131,7 +131,7 @@ export default function StoriesPage() {
   const heading = useMemo(() => buildHeading(appliedFilters, clusters), [appliedFilters, clusters])
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={3} sx={{ width: '100%', overflowX: 'hidden' }}>
       <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
         <Stack spacing={1}>
           <Typography variant="h5">Stories browser</Typography>
@@ -145,14 +145,20 @@ export default function StoriesPage() {
         <Stack spacing={2}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Sources</Typography>
           {loadingOptions ? <Typography color="text.secondary">Loading sources...</Typography> : null}
-          <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
             {sources.map((source) => (
               <ToggleButton
                 key={source}
                 value={source}
                 selected={filters.source_name === source}
                 onChange={() => setFilters((current) => ({ ...current, source_name: current.source_name === source ? '' : source }))}
-                sx={{ whiteSpace: 'nowrap', borderRadius: 999 }}
+                sx={{
+                  whiteSpace: 'nowrap',
+                  borderRadius: 999,
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
               >
                 {source}
               </ToggleButton>
@@ -267,7 +273,7 @@ export default function StoriesPage() {
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4 }}>
+      <Paper sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4, overflow: 'hidden' }}>
         <Stack spacing={2}>
           <div>
             <Typography variant="overline" color="text.secondary">Search focus</Typography>

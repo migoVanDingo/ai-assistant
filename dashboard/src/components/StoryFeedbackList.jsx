@@ -84,14 +84,14 @@ export default function StoryFeedbackList({
   }
 
   return (
-    <ol style={{ margin: 0, paddingLeft: '1.5rem' }}>
+    <ol style={{ margin: 0, paddingLeft: '1.5rem', overflowX: 'hidden' }}>
       {items.map((item) => {
         const feedback = getFeedback(item)
         const saving = Boolean(activeFeedbackSaving[item.item_id])
         return (
-          <li key={item.item_id} style={{ marginBottom: '1rem' }}>
-            <Stack spacing={0.5}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{item.title || '(untitled)'}</Typography>
+          <li key={item.item_id} style={{ marginBottom: '1rem', overflowX: 'hidden' }}>
+            <Stack spacing={0.5} sx={{ minWidth: 0, overflowX: 'hidden' }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title || '(untitled)'}</Typography>
               {item.canonical_url || item.url ? (
                 <Typography
                   component="a"
@@ -99,7 +99,14 @@ export default function StoryFeedbackList({
                   target="_blank"
                   rel="noreferrer"
                   variant="body2"
-                  sx={{ color: 'primary.main', wordBreak: 'break-all' }}
+                  sx={{
+                    color: 'primary.main',
+                    display: 'block',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
                   {item.canonical_url || item.url}
                 </Typography>
