@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import HeaderBar from './components/HeaderBar'
 import BriefPage from './pages/BriefPage'
+import FavoritesPage from './pages/FavoritesPage'
 import QueryPage from './pages/QueryPage'
 import StoriesPage from './pages/StoriesPage'
 import { api } from './services/api'
@@ -112,6 +113,8 @@ export default function App() {
           />
           <Route path="/ask" element={<QueryPage queries={recentQueries} queriesLoading={queriesLoading} refreshQueries={refreshRecentQueries} />} />
           <Route path="/stories" element={<StoriesPage />} />
+          <Route path="/favorites" element={<FavoritesPage />} />
+          <Route path="/favorites/:folderId" element={<FavoritesPage />} />
         </Routes>
         <Box component="footer" sx={{ mt: 4, pb: 2, color: 'text.secondary', fontSize: 12 }}>
           Build {__APP_BUILD_SHA__} · {new Date(__APP_BUILD_TIME__).toLocaleString()}

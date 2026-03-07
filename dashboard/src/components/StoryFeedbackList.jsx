@@ -5,6 +5,7 @@ import ThumbUpAltOutlinedIcon from '@mui/icons-material/ThumbUpAltOutlined'
 import ThumbUpAltIcon from '@mui/icons-material/ThumbUpAlt'
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
+import FavoriteButton from './FavoriteButton'
 
 export default function StoryFeedbackList({
   items,
@@ -125,6 +126,11 @@ export default function StoryFeedbackList({
                 >
                   {feedback.vote < 0 ? <ThumbDownAltIcon fontSize="small" /> : <ThumbDownAltOutlinedIcon fontSize="small" />}
                 </IconButton>
+                <FavoriteButton
+                  title={item.title || item.url || item.canonical_url || '(untitled)'}
+                  url={item.canonical_url || item.url}
+                  itemId={item.item_id}
+                />
                 <Typography variant="caption" color="text.secondary">
                   score {Number(feedback.score || 0)}
                 </Typography>

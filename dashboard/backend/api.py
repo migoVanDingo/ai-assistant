@@ -47,6 +47,17 @@ class StoryLinksResolveRequest(BaseModel):
     urls: list[str] = Field(default_factory=list)
 
 
+class FavoriteFolderCreateRequest(BaseModel):
+    name: str
+
+
+class FavoriteAddRequest(BaseModel):
+    title: str
+    url: str
+    folder_id: str | None = None
+    item_id: str | None = None
+
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 if load_dotenv:
     load_dotenv(dotenv_path=os.getenv("BRIEFBOT_ENV_FILE", BASE_DIR / ".env"))
@@ -306,6 +317,73 @@ def resolve_story_links(req: StoryLinksResolveRequest) -> dict[str, Any]:
     dao = get_dao()
     try:
         return {"items": dao.resolve_story_links(req.urls)}
+    finally:
+        dao.close()
+
+
+@app.get("/api/favorites/folders")
+@app.get("/favorites/folders")
+def list_favorite_folders() -> list[dict[str, Any]]:
+    dao = get_dao()
+    try:
+        return dao.list_favorite_folders()
+    finally:
+        dao.close()
+
+
+@app.post("/api/favorites/folders")
+@app.post("/favorites/folders")
+def create_favorite_folder(req: FavoriteFolderCreateRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.create_favorite_folder(req.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        dao.close()
+
+
+@app.post("/api/favorites/items")
+@app.post("/favorites/items")
+def add_favorite_item(req: FavoriteAddRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.add_favorite_link(
+            title=req.title,
+            url=req.url,
+            folder_id=req.folder_id,
+            item_id=req.item_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        dao.close()
+
+
+@app.get("/api/favorites/items")
+@app.get("/favorites/items")
+def list_favorite_items(folder_id: str | None = None) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.list_favorite_links(folder_id=folder_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        dao.close()
+
+
+@app.delete("/api/favorites/items")
+@app.delete("/favorites/items")
+def remove_favorite_item(
+    favorite_id: str | None = None,
+    folder_id: str | None = None,
+    url: str | None = None,
+) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.remove_favorite_link(favorite_id=favorite_id, folder_id=folder_id, url=url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         dao.close()
 

@@ -30,16 +30,21 @@ async function request(path, options = {}) {
   return response.json()
 }
 
+function toQuery(params = {}) {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, value)
+  })
+  return search.toString() ? `?${search.toString()}` : ''
+}
+
 export const api = {
   listBriefs: () => request('/api/briefs'),
   getBrief: (date) => request(`/api/briefs/${date}`),
   getMetrics: () => request('/api/metrics'),
   query: (payload) => request('/api/query', { method: 'POST', body: JSON.stringify(payload) }),
   listQueries: (params = {}) => {
-    const search = new URLSearchParams()
-    if (params.days) search.set('days', params.days)
-    if (params.limit) search.set('limit', params.limit)
-    const suffix = search.toString() ? `?${search.toString()}` : ''
+    const suffix = toQuery({ days: params.days, limit: params.limit })
     return request(`/api/queries${suffix}`)
   },
   getQuery: (id) => request(`/api/queries/${id}`),
@@ -48,12 +53,18 @@ export const api = {
   listStoryTags: () => request('/api/stories/tags'),
   listStoryWatchHits: () => request('/api/stories/watch-hits'),
   listStorySections: (params = {}) => {
-    const search = new URLSearchParams()
-    if (params.section_limit) search.set('section_limit', params.section_limit)
-    const suffix = search.toString() ? `?${search.toString()}` : ''
+    const suffix = toQuery({ section_limit: params.section_limit })
     return request(`/api/stories/sections${suffix}`)
   },
   setStoryFeedback: (payload) => request('/api/stories/feedback', { method: 'POST', body: JSON.stringify(payload) }),
   resolveStoryLinks: (payload) => request('/api/stories/resolve-links', { method: 'POST', body: JSON.stringify(payload) }),
+  listFavoriteFolders: () => request('/api/favorites/folders'),
+  createFavoriteFolder: (payload) => request('/api/favorites/folders', { method: 'POST', body: JSON.stringify(payload) }),
+  addFavoriteItem: (payload) => request('/api/favorites/items', { method: 'POST', body: JSON.stringify(payload) }),
+  listFavoriteItems: (params = {}) => {
+    const suffix = toQuery({ folder_id: params.folder_id })
+    return request(`/api/favorites/items${suffix}`)
+  },
+  removeFavoriteItem: (params = {}) => request(`/api/favorites/items${toQuery(params)}`, { method: 'DELETE' }),
   queryStories: (payload) => request('/api/stories', { method: 'POST', body: JSON.stringify(payload) }),
 }

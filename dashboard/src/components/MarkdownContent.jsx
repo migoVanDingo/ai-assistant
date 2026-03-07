@@ -6,6 +6,14 @@ import ThumbUpAltIcon from '@mui/icons-material/ThumbUpAlt'
 import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { api } from '../services/api'
+import FavoriteButton from './FavoriteButton'
+
+function textFromNode(node) {
+  if (typeof node === 'string') return node
+  if (Array.isArray(node)) return node.map(textFromNode).join('')
+  if (node && typeof node === 'object' && 'props' in node) return textFromNode(node.props?.children)
+  return ''
+}
 
 export default function MarkdownContent({
   markdown,
@@ -99,6 +107,11 @@ export default function MarkdownContent({
               >
                 {feedback.vote < 0 ? <ThumbDownAltIcon fontSize="inherit" /> : <ThumbDownAltOutlinedIcon fontSize="inherit" />}
               </IconButton>
+              <FavoriteButton
+                title={textFromNode(children) || url}
+                url={url}
+                itemId={meta.item_id}
+              />
               <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>{Number(feedback.score || 0)}</Typography>
             </Box>
           )

@@ -72,8 +72,29 @@ class BriefbotDAO:
 
             CREATE INDEX IF NOT EXISTS idx_story_feedback_events_item_id
             ON dashboard_story_feedback_events(item_id);
+
+            CREATE TABLE IF NOT EXISTS dashboard_favorite_folders (
+                folder_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS dashboard_favorite_links (
+                favorite_id TEXT PRIMARY KEY,
+                folder_id TEXT NOT NULL,
+                item_id TEXT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(folder_id, url)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_favorite_links_folder_id
+            ON dashboard_favorite_links(folder_id);
             """
         )
+        self._ensure_default_favorites_folder()
         self.conn.commit()
 
     def _rows(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -643,6 +664,176 @@ class BriefbotDAO:
             "score": new_score,
             "updated_at": now,
         }
+
+    def _ensure_default_favorites_folder(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_favorite_folders(folder_id, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+              updated_at=excluded.updated_at
+            """,
+            ("favorites", "favorites", now, now),
+        )
+
+    def list_favorite_folders(self) -> list[dict[str, Any]]:
+        self._ensure_default_favorites_folder()
+        rows = self._rows(
+            """
+            SELECT f.folder_id, f.name, f.created_at, f.updated_at, COUNT(l.favorite_id) AS count
+            FROM dashboard_favorite_folders f
+            LEFT JOIN dashboard_favorite_links l ON l.folder_id = f.folder_id
+            GROUP BY f.folder_id, f.name, f.created_at, f.updated_at
+            ORDER BY CASE WHEN lower(f.name) = 'favorites' THEN 0 ELSE 1 END, lower(f.name) ASC
+            """
+        )
+        self.conn.commit()
+        return rows
+
+    def create_favorite_folder(self, name: str) -> dict[str, Any]:
+        trimmed = (name or "").strip()
+        if not trimmed:
+            raise ValueError("folder name is required")
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        existing = self._row(
+            """
+            SELECT folder_id, name, created_at, updated_at
+            FROM dashboard_favorite_folders
+            WHERE lower(name) = lower(?)
+            """,
+            (trimmed,),
+        )
+        if existing:
+            return existing
+        folder_id = str(uuid.uuid4())
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_favorite_folders(folder_id, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (folder_id, trimmed, now, now),
+        )
+        self.conn.commit()
+        return {
+            "folder_id": folder_id,
+            "name": trimmed,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    def _resolve_folder_id(self, folder_id: str | None = None) -> str:
+        self._ensure_default_favorites_folder()
+        if folder_id:
+            row = self._row("SELECT folder_id FROM dashboard_favorite_folders WHERE folder_id = ?", (folder_id,))
+            if row:
+                return str(row["folder_id"])
+            raise ValueError("folder not found")
+        return "favorites"
+
+    def add_favorite_link(
+        self,
+        *,
+        title: str,
+        url: str,
+        folder_id: str | None = None,
+        item_id: str | None = None,
+    ) -> dict[str, Any]:
+        safe_url = (url or "").strip()
+        safe_title = (title or "").strip()
+        if not safe_url:
+            raise ValueError("url is required")
+        if not safe_title:
+            safe_title = safe_url
+        target_folder_id = self._resolve_folder_id(folder_id)
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        favorite_id = str(uuid.uuid4())
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_favorite_links(favorite_id, folder_id, item_id, title, url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(folder_id, url) DO UPDATE SET
+              title=excluded.title,
+              item_id=COALESCE(excluded.item_id, dashboard_favorite_links.item_id)
+            """,
+            (favorite_id, target_folder_id, item_id, safe_title, safe_url, now),
+        )
+        row = self._row(
+            """
+            SELECT favorite_id, folder_id, item_id, title, url, created_at
+            FROM dashboard_favorite_links
+            WHERE folder_id = ? AND url = ?
+            """,
+            (target_folder_id, safe_url),
+        )
+        self.conn.commit()
+        return row or {
+            "favorite_id": favorite_id,
+            "folder_id": target_folder_id,
+            "item_id": item_id,
+            "title": safe_title,
+            "url": safe_url,
+            "created_at": now,
+        }
+
+    def list_favorite_links(self, folder_id: str | None = None) -> dict[str, Any]:
+        target_folder_id = self._resolve_folder_id(folder_id)
+        folder = self._row(
+            "SELECT folder_id, name, created_at, updated_at FROM dashboard_favorite_folders WHERE folder_id = ?",
+            (target_folder_id,),
+        )
+        rows = self._rows(
+            """
+            SELECT favorite_id, folder_id, item_id, title, url, created_at
+            FROM dashboard_favorite_links
+            WHERE folder_id = ?
+            ORDER BY datetime(created_at) DESC, lower(title) ASC
+            """,
+            (target_folder_id,),
+        )
+        feedback_map = self.get_story_feedback_map([str(row.get("item_id") or "") for row in rows if row.get("item_id")])
+        for row in rows:
+            item_id = str(row.get("item_id") or "")
+            state = feedback_map.get(item_id) if item_id else None
+            row["feedback_vote"] = int((state or {}).get("vote") or 0)
+            row["feedback_score"] = float((state or {}).get("score") or 0.0)
+            row["feedback_updated_at"] = (state or {}).get("updated_at")
+        self.conn.commit()
+        return {
+            "folder": folder or {"folder_id": target_folder_id, "name": "favorites"},
+            "items": rows,
+        }
+
+    def remove_favorite_link(self, *, favorite_id: str | None = None, folder_id: str | None = None, url: str | None = None) -> dict[str, Any]:
+        if favorite_id:
+            row = self._row(
+                "SELECT favorite_id, folder_id, title, url FROM dashboard_favorite_links WHERE favorite_id = ?",
+                (favorite_id,),
+            )
+            if not row:
+                raise ValueError("favorite item not found")
+            self.conn.execute("DELETE FROM dashboard_favorite_links WHERE favorite_id = ?", (favorite_id,))
+            self.conn.commit()
+            return {"removed": True, "favorite_id": favorite_id, "folder_id": row.get("folder_id"), "url": row.get("url")}
+        target_folder_id = self._resolve_folder_id(folder_id)
+        safe_url = (url or "").strip()
+        if not safe_url:
+            raise ValueError("url is required when favorite_id is not provided")
+        row = self._row(
+            """
+            SELECT favorite_id FROM dashboard_favorite_links
+            WHERE folder_id = ? AND url = ?
+            """,
+            (target_folder_id, safe_url),
+        )
+        if not row:
+            raise ValueError("favorite item not found")
+        self.conn.execute(
+            "DELETE FROM dashboard_favorite_links WHERE favorite_id = ?",
+            (row["favorite_id"],),
+        )
+        self.conn.commit()
+        return {"removed": True, "favorite_id": row["favorite_id"], "folder_id": target_folder_id, "url": safe_url}
 
     def resolve_story_links(self, urls: list[str]) -> dict[str, dict[str, Any]]:
         normalized_urls = [str(url).strip() for url in urls if str(url).strip()]
