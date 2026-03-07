@@ -644,6 +644,53 @@ class BriefbotDAO:
             "updated_at": now,
         }
 
+    def resolve_story_links(self, urls: list[str]) -> dict[str, dict[str, Any]]:
+        normalized_urls = [str(url).strip() for url in urls if str(url).strip()]
+        if not normalized_urls:
+            return {}
+        unique_urls = list(dict.fromkeys(normalized_urls))
+        placeholders = ",".join(["?"] * len(unique_urls))
+        rows = self._rows(
+            f"""
+            SELECT DISTINCT
+                i.item_id,
+                i.title,
+                i.url,
+                i.canonical_url,
+                i.published_at,
+                i.fetched_at,
+                i.source_name,
+                i.summary,
+                i.tags_json,
+                i.watch_hits_json,
+                m.cluster_id
+            FROM items i
+            LEFT JOIN cluster_memberships m ON m.item_id = i.item_id
+            WHERE i.url IN ({placeholders}) OR i.canonical_url IN ({placeholders})
+            ORDER BY datetime(COALESCE(i.published_at, i.fetched_at)) DESC, i.score DESC
+            """,
+            tuple(unique_urls + unique_urls),
+        )
+        items = serialize_rows(rows)
+        feedback_map = self.get_story_feedback_map([item.get("item_id") for item in items if item.get("item_id")])
+        self._attach_feedback(items, feedback_map)
+
+        out: dict[str, dict[str, Any]] = {}
+        by_url: dict[str, dict[str, Any]] = {}
+        by_canonical: dict[str, dict[str, Any]] = {}
+        for item in items:
+            raw_url = str(item.get("url") or "").strip()
+            canonical = str(item.get("canonical_url") or "").strip()
+            if raw_url and raw_url not in by_url:
+                by_url[raw_url] = item
+            if canonical and canonical not in by_canonical:
+                by_canonical[canonical] = item
+        for url in unique_urls:
+            matched = by_url.get(url) or by_canonical.get(url)
+            if matched:
+                out[url] = matched
+        return out
+
     def _attach_feedback(self, items: list[dict[str, Any]], feedback_map: dict[str, dict[str, Any]]) -> None:
         for item in items:
             state = feedback_map.get(item.get("item_id")) or {"vote": 0, "score": 0.0}

@@ -54,5 +54,6 @@ export const api = {
     return request(`/api/stories/sections${suffix}`)
   },
   setStoryFeedback: (payload) => request('/api/stories/feedback', { method: 'POST', body: JSON.stringify(payload) }),
+  resolveStoryLinks: (payload) => request('/api/stories/resolve-links', { method: 'POST', body: JSON.stringify(payload) }),
   queryStories: (payload) => request('/api/stories', { method: 'POST', body: JSON.stringify(payload) }),
 }

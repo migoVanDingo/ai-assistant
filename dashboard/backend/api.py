@@ -43,6 +43,10 @@ class StoryFeedbackRequest(BaseModel):
     section: str = "other_links"
 
 
+class StoryLinksResolveRequest(BaseModel):
+    urls: list[str] = Field(default_factory=list)
+
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 if load_dotenv:
     load_dotenv(dotenv_path=os.getenv("BRIEFBOT_ENV_FILE", BASE_DIR / ".env"))
@@ -292,6 +296,16 @@ def set_story_feedback(req: StoryFeedbackRequest) -> dict[str, Any]:
         return dao.set_story_feedback(item_id=req.item_id, vote=req.vote, section=req.section)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        dao.close()
+
+
+@app.post("/api/stories/resolve-links")
+@app.post("/stories/resolve-links")
+def resolve_story_links(req: StoryLinksResolveRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return {"items": dao.resolve_story_links(req.urls)}
     finally:
         dao.close()
 
