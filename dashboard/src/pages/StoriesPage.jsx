@@ -145,25 +145,43 @@ export default function StoriesPage() {
         <Stack spacing={2}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Sources</Typography>
           {loadingOptions ? <Typography color="text.secondary">Loading sources...</Typography> : null}
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-            {sources.map((source) => (
-              <ToggleButton
-                key={source}
-                value={source}
-                selected={filters.source_name === source}
-                onChange={() => setFilters((current) => ({ ...current, source_name: current.source_name === source ? '' : source }))}
-                sx={{
-                  whiteSpace: 'nowrap',
-                  borderRadius: 999,
-                  maxWidth: '100%',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {source}
-              </ToggleButton>
-            ))}
-          </Stack>
+          <Box
+            sx={{
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              mx: -2,
+              px: 2,
+              pb: 1,
+              maskImage: {
+                xs: 'linear-gradient(to right, transparent 0, black 8px, black calc(100% - 24px), transparent 100%)',
+                md: 'linear-gradient(to right, transparent 0, black 8px, black calc(100% - 32px), transparent 100%)',
+              },
+              '&::-webkit-scrollbar': { height: 6 },
+              '&::-webkit-scrollbar-thumb': {
+                borderRadius: 3,
+                bgcolor: 'action.hover',
+              },
+            }}
+          >
+            <Stack direction="row" spacing={1} sx={{ width: 'max-content', py: 0.5 }}>
+              {sources.map((source) => (
+                <ToggleButton
+                  key={source}
+                  value={source}
+                  selected={filters.source_name === source}
+                  onChange={() => setFilters((current) => ({ ...current, source_name: current.source_name === source ? '' : source }))}
+                  size="small"
+                  sx={{
+                    whiteSpace: 'nowrap',
+                    borderRadius: 999,
+                    flexShrink: 0,
+                  }}
+                >
+                  {source}
+                </ToggleButton>
+              ))}
+            </Stack>
+          </Box>
         </Stack>
       </Paper>
 
