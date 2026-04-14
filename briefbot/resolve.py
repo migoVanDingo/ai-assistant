@@ -14,6 +14,46 @@ from typing import Any
 
 from dateutil import parser as dtparser
 
+QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "any",
+    "about",
+    "article",
+    "articles",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "news",
+    "of",
+    "on",
+    "please",
+    "show",
+    "story",
+    "stories",
+    "summarize",
+    "summarise",
+    "summary",
+    "tell",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+}
+
+SUMMARY_PREFIX_RE = re.compile(
+    r"^\s*(please\s+)?(summari[sz]e|summary(?:\s+of)?|explain)\s+",
+    re.I,
+)
+
 
 def resolve_date(value: str) -> str:
     if value == "today":
@@ -145,7 +185,23 @@ def _to_dt(value: str | None) -> datetime:
 
 
 def rank_items_for_query(query: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9_\-\.]+", query or "") if t]
+    quoted_phrases = [p.strip().lower() for p in re.findall(r"\"([^\"]+)\"", query or "") if p.strip()]
+    normalized_query = SUMMARY_PREFIX_RE.sub("", (query or "").strip()).strip()
+    raw_tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9_\-\.]+", normalized_query or "") if t]
+    tokens = []
+    seen: set[str] = set()
+    for token in raw_tokens:
+        if len(token) <= 1:
+            continue
+        if token in QUERY_STOPWORDS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+    if not tokens:
+        # Fall back to raw tokens when everything was removed (for very short queries).
+        tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9_\-\.]+", query or "") if t]
     now = datetime.now(timezone.utc)
 
     ranked: list[dict[str, Any]] = []
@@ -165,6 +221,11 @@ def rank_items_for_query(query: str, items: list[dict[str, Any]]) -> list[dict[s
                 match_score += 1.2
             if tok in source_name:
                 match_score += 1.0
+        for phrase in quoted_phrases:
+            if phrase in title:
+                match_score += 5.0
+            elif phrase in summary:
+                match_score += 2.5
 
         age_days = (now - _to_dt(item.get("published_at") or item.get("fetched_at"))).total_seconds() / 86400.0
         recency_boost = max(0.0, 1.0 - min(age_days, 14.0) / 14.0)

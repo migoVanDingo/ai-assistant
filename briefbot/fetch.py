@@ -11,12 +11,15 @@ This module returns normalized item dicts via `briefbot.normalize` and raises
 
 from __future__ import annotations
 
+import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 import feedparser
 import requests
+from dateutil import parser as dtparser
 
 from .normalize import normalize_arxiv_entry, normalize_feed_entry, normalize_hn_item
 
@@ -160,11 +163,41 @@ def _arxiv_category_url(category: str) -> str:
     return f"https://export.arxiv.org/rss/{category}"
 
 
-def _arxiv_query_api(query: str, limit: int) -> str:
+def _arxiv_query_api(
+    query: str,
+    limit: int,
+    *,
+    start: int = 0,
+    sort_by: str = "submittedDate",
+    sort_order: str = "descending",
+) -> str:
     from urllib.parse import quote_plus
 
     q = quote_plus(query)
-    return f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results={limit}"
+    return (
+        "https://export.arxiv.org/api/query"
+        f"?search_query={q}&start={max(0, int(start))}&max_results={max(1, int(limit))}"
+        f"&sortBy={sort_by}&sortOrder={sort_order}"
+    )
+
+
+def _to_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = dtparser.parse(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def fetch_arxiv_source(
@@ -173,6 +206,14 @@ def fetch_arxiv_source(
     sess = session or requests.Session()
     mode = source.get("mode", "category")
     limit = int(source.get("limit", 50))
+    lookback_days_raw = source.get("lookback_days")
+    if lookback_days_raw in (None, "", 0):
+        lookback_days_raw = os.getenv("BRIEFBOT_ARXIV_LOOKBACK_DAYS", "").strip()
+    lookback_days = _safe_int(lookback_days_raw, 0) if str(lookback_days_raw).strip() else 0
+    total_cap_raw = source.get("max_results_total")
+    if total_cap_raw in (None, "", 0):
+        total_cap_raw = os.getenv("BRIEFBOT_ARXIV_MAX_RESULTS_TOTAL", "").strip()
+    total_cap = _safe_int(total_cap_raw, limit) if str(total_cap_raw).strip() else limit
 
     if mode == "category":
         category = source.get("arxiv_category") or source.get("category")
@@ -180,13 +221,49 @@ def fetch_arxiv_source(
             raise FetchError(f"arXiv category mode requires 'category' for {source['id']}")
         url = _arxiv_category_url(category)
         fallback_query = f"cat:{category}"
+        base_query = fallback_query
     elif mode == "query":
         query = source.get("query")
         if not query:
             raise FetchError(f"arXiv query mode requires 'query' for {source['id']}")
         url = _arxiv_query_api(query, limit)
+        base_query = query
     else:
         raise FetchError(f"Invalid arXiv mode '{mode}' for source {source['id']}")
+
+    if lookback_days > 0:
+        max_total = max(total_cap, limit)
+        page_size = min(200, max(limit, 50))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
+        entries: list[Any] = []
+        start = 0
+        while len(entries) < max_total:
+            api_url = _arxiv_query_api(base_query, page_size, start=start)
+            page_resp = _request_with_retries(
+                session=sess,
+                url=api_url,
+                timeout=timeout,
+                headers={"User-Agent": "briefbot/1.0"},
+                verify_ssl=bool(source.get("verify_ssl", True)),
+            )
+            page_resp.raise_for_status()
+            parsed = feedparser.parse(page_resp.content)
+            page_entries = list(parsed.entries or [])
+            if not page_entries:
+                break
+            reached_cutoff = False
+            for entry in page_entries:
+                published = _to_utc(entry.get("published") or entry.get("updated"))
+                if published and published < cutoff:
+                    reached_cutoff = True
+                    break
+                entries.append(entry)
+                if len(entries) >= max_total:
+                    break
+            if reached_cutoff or len(entries) >= max_total or len(page_entries) < page_size:
+                break
+            start += page_size
+        return [normalize_arxiv_entry(source, dict(entry)) for entry in entries]
 
     resp = _request_with_retries(
         session=sess,

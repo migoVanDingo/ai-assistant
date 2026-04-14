@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -17,6 +18,31 @@ from briefbot.resolve import rank_items_for_query
 class DashboardConfig:
     db_path: str | Path
     briefs_dir: str | Path
+
+
+SUMMARY_QUERY_PREFIX_RE = re.compile(
+    r"^\s*(please\s+)?(summari[sz]e|summary(?:\s+of)?|explain)\s+",
+    re.I,
+)
+
+
+def _strip_query_noise(query: str) -> str:
+    cleaned = SUMMARY_QUERY_PREFIX_RE.sub("", (query or "").strip())
+    cleaned = re.sub(r"^\s*(the\s+)?(story|article)\s+", "", cleaned, flags=re.I)
+    return cleaned.strip().strip("\"'`")
+
+
+def _search_tokens(query: str, *, max_tokens: int = 8) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[a-z0-9][a-z0-9_.-]{1,}", (query or "").lower()):
+        if token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+        if len(tokens) >= max_tokens:
+            break
+    return tokens
 
 
 class BriefbotDAO:
@@ -282,30 +308,51 @@ class BriefbotDAO:
         )
 
     def search_items(self, query: str, days: int = 30, limit: int = 20) -> list[dict[str, Any]]:
-        query_text = (query or "").strip().lower()
-        list_all = query_text in {"", "all", "all items", "all stories", "everything", "latest items"}
-        like = f"%{query_text}%"
-        sql = """
+        safe_days = max(1, int(days))
+        safe_limit = max(1, int(limit))
+        query_text = (query or "").strip()
+        query_lower = query_text.lower()
+        list_all = query_lower in {"", "all", "all items", "all stories", "everything", "latest items"}
+        base_sql = """
             SELECT item_id, title, url, canonical_url, source_name, source_category, published_at, fetched_at,
                    score, score_opportunity, tags_json, summary, watch_hits_json
             FROM items
             WHERE datetime(COALESCE(published_at, fetched_at)) >= datetime('now', ?)
         """
-        params: list[Any] = [f"-{int(days)} days"]
-        if not list_all:
-            sql += """
-              AND (
-                lower(title) LIKE ? OR lower(COALESCE(summary, '')) LIKE ? OR
-                lower(COALESCE(source_name, '')) LIKE ? OR lower(COALESCE(tags_json, '')) LIKE ?
-              )
-            """
-            params.extend([like, like, like, like])
-        sql += """
-            ORDER BY score DESC, datetime(COALESCE(published_at, fetched_at)) DESC
+        if list_all:
+            return self._rows(
+                base_sql
+                + """
+                ORDER BY score DESC, datetime(COALESCE(published_at, fetched_at)) DESC
+                LIMIT ?
+                """,
+                (f"-{safe_days} days", safe_limit),
+            )
+
+        pool_limit = min(2500, max(300, safe_limit * 30))
+        rows = self._rows(
+            base_sql
+            + """
+            ORDER BY datetime(COALESCE(published_at, fetched_at)) DESC, score DESC
             LIMIT ?
-        """
-        params.append(int(limit))
-        return self._rows(sql, tuple(params))
+            """,
+            (f"-{safe_days} days", pool_limit),
+        )
+        candidates = serialize_rows(rows)
+        ranked = rank_items_for_query(query_text, candidates)
+        positive = [item for item in ranked if float(item.get("query_score") or 0.0) > 0.0]
+        if positive:
+            return positive[:safe_limit]
+
+        cleaned = _strip_query_noise(query_text)
+        if cleaned and cleaned.lower() != query_lower:
+            reranked = rank_items_for_query(cleaned, candidates)
+            reranked_positive = [item for item in reranked if float(item.get("query_score") or 0.0) > 0.0]
+            if reranked_positive:
+                return reranked_positive[:safe_limit]
+            if reranked:
+                return reranked[:safe_limit]
+        return ranked[:safe_limit]
 
     def get_cluster_members(self, cluster_id: str, limit: int = 12) -> list[dict[str, Any]]:
         return self._rows(
@@ -354,11 +401,22 @@ class BriefbotDAO:
         return {"entity": entity, "items": items, "clusters": clusters}
 
     def find_best_item_for_query(self, query: str, days: int = 365, limit: int = 25) -> dict[str, Any] | None:
-        candidates = self.search_items(query=query, days=days, limit=limit)
+        search_limit = max(int(limit), 120)
+        candidates = self.search_items(query=query, days=days, limit=search_limit)
         if not candidates:
             return None
         ranked = rank_items_for_query(query, serialize_rows(candidates))
-        return ranked[0] if ranked else None
+        positive = [item for item in ranked if float(item.get("query_score") or 0.0) > 0.0]
+        if positive:
+            return positive[0]
+
+        cleaned = _strip_query_noise(query)
+        if cleaned and cleaned.lower() != (query or "").strip().lower():
+            reranked = rank_items_for_query(cleaned, serialize_rows(candidates))
+            reranked_positive = [item for item in reranked if float(item.get("query_score") or 0.0) > 0.0]
+            if reranked_positive:
+                return reranked_positive[0]
+        return None
 
     def list_source_names(self) -> list[str]:
         rows = self._rows(
@@ -430,6 +488,7 @@ class BriefbotDAO:
         source_name: str | None = None,
         from_date: str | None = None,
         to_date: str | None = None,
+        search: str | None = None,
         limit: int = 20,
         cluster_id: str | None = None,
         tags: list[str] | None = None,
@@ -451,6 +510,37 @@ class BriefbotDAO:
         if to_date:
             clauses.append("date(COALESCE(i.published_at, i.fetched_at)) <= date(?)")
             params.append(to_date)
+        if search:
+            safe_search = str(search).strip().lower()
+            if safe_search:
+                fields = [
+                    "lower(COALESCE(i.title, ''))",
+                    "lower(COALESCE(i.summary, ''))",
+                    "lower(COALESCE(i.source_name, ''))",
+                    "lower(COALESCE(i.tags_json, ''))",
+                    "lower(COALESCE(i.watch_hits_json, ''))",
+                    "lower(COALESCE(i.url, ''))",
+                    "lower(COALESCE(i.canonical_url, ''))",
+                ]
+                search_conditions: list[str] = []
+                search_params: list[str] = []
+                pattern_values = [safe_search] + _search_tokens(safe_search, max_tokens=8)
+                deduped_patterns: list[str] = []
+                seen_patterns: set[str] = set()
+                for value in pattern_values:
+                    value = value.strip().lower()
+                    if not value or value in seen_patterns:
+                        continue
+                    seen_patterns.add(value)
+                    deduped_patterns.append(value)
+                for pattern in deduped_patterns:
+                    like = f"%{pattern}%"
+                    for field in fields:
+                        search_conditions.append(f"{field} LIKE ?")
+                        search_params.append(like)
+                if search_conditions:
+                    clauses.append("(" + " OR ".join(search_conditions) + ")")
+                    params.extend(search_params)
         if cluster_id:
             clauses.append("m.cluster_id = ?")
             params.append(cluster_id)
@@ -495,6 +585,7 @@ class BriefbotDAO:
                 "source_name": source_name,
                 "from_date": from_date,
                 "to_date": to_date,
+                "search": (search or "").strip(),
                 "limit": safe_limit,
                 "cluster_id": cluster_id,
                 "tags": list(tags or []),

@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 import logging
+import re
+import subprocess
+import threading
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus, urlparse
 
+import feedparser
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -15,6 +24,12 @@ try:
     from dotenv import load_dotenv
 except Exception:  # pragma: no cover
     load_dotenv = None
+
+from briefbot.normalize import normalize_arxiv_entry
+from briefbot.opportunity import compute_opportunity
+from briefbot.score import compute_score
+from briefbot.store import Store
+from briefbot.watchlist import load_watchlist, match_watchlist
 
 from .dao import BriefbotDAO, DashboardConfig
 from .llm_adapter import DashboardLLMAdapter
@@ -30,6 +45,7 @@ class StoriesQuery(BaseModel):
     source_name: str | None = None
     from_date: str | None = None
     to_date: str | None = None
+    search: str | None = None
     limit: int = Field(default=20, ge=5, le=50)
     cluster_id: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -58,10 +74,37 @@ class FavoriteAddRequest(BaseModel):
     item_id: str | None = None
 
 
+class NightlyRunRequest(BaseModel):
+    mode: str = Field(default="standard")
+
+
+class ArxivImportRequest(BaseModel):
+    url: str
+
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 if load_dotenv:
     load_dotenv(dotenv_path=os.getenv("BRIEFBOT_ENV_FILE", BASE_DIR / ".env"))
 DB_PATH = Path(os.getenv("BRIEFBOT_DB_PATH", BASE_DIR / "data/briefbot.db"))
+LOG_DIR = Path(os.getenv("BRIEFBOT_LOG_DIR", BASE_DIR / "data/logs"))
+NIGHTLY_SCRIPT = BASE_DIR / "briefbot/nightly_briefbot.sh"
+WATCHLIST_PATH = Path(os.getenv("BRIEFBOT_WATCHLIST_PATH", BASE_DIR / "watchlist.yaml"))
+
+NIGHTLY_JOB_LOCK = threading.Lock()
+NIGHTLY_JOB_STATE: dict[str, Any] = {
+    "running": False,
+    "status": "idle",
+    "run_id": None,
+    "mode": None,
+    "started_at": None,
+    "finished_at": None,
+    "exit_code": None,
+    "log_path": None,
+    "command": None,
+    "error": None,
+}
+NIGHTLY_MODES = {"standard", "arxiv_backfill_2y"}
+ARXIV_ID_RE = re.compile(r"^(?:\d{4}\.\d{4,5}|[A-Za-z.\-]+/\d{7})(?:v\d+)?$")
 
 
 def _resolve_briefs_dir() -> Path:
@@ -90,10 +133,143 @@ def _resolve_briefs_dir() -> Path:
 BRIEFS_DIR = _resolve_briefs_dir()
 logger = logging.getLogger("dashboard.api")
 
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _snapshot_nightly_job() -> dict[str, Any]:
+    with NIGHTLY_JOB_LOCK:
+        return dict(NIGHTLY_JOB_STATE)
+
+
+def _nightly_env_for_mode(mode: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PROJECT_DIR"] = str(BASE_DIR)
+    env["BRIEFBOT_DIR"] = str(BASE_DIR)
+    if mode == "arxiv_backfill_2y":
+        env["BRIEFBOT_ARXIV_LOOKBACK_DAYS"] = "730"
+        env.setdefault("BRIEFBOT_ARXIV_MAX_RESULTS_TOTAL", "50000")
+    return env
+
+
+def _run_nightly_job(run_id: str, mode: str, log_path: Path) -> None:
+    command = ["/bin/bash", str(NIGHTLY_SCRIPT)]
+    env = _nightly_env_for_mode(mode)
+    started_at = _utc_now_iso()
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    with NIGHTLY_JOB_LOCK:
+        NIGHTLY_JOB_STATE.update(
+            {
+                "running": True,
+                "status": "running",
+                "run_id": run_id,
+                "mode": mode,
+                "started_at": started_at,
+                "finished_at": None,
+                "exit_code": None,
+                "log_path": str(log_path),
+                "command": command,
+                "error": None,
+            }
+        )
+
+    try:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "event": "dashboard_manual_nightly_start",
+                        "run_id": run_id,
+                        "mode": mode,
+                        "started_at": started_at,
+                        "command": command,
+                        "cwd": str(BASE_DIR),
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
+            handle.flush()
+            completed = subprocess.run(
+                command,
+                cwd=str(BASE_DIR),
+                env=env,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+            )
+        finished_at = _utc_now_iso()
+        with NIGHTLY_JOB_LOCK:
+            NIGHTLY_JOB_STATE.update(
+                {
+                    "running": False,
+                    "status": "success" if completed.returncode == 0 else "failed",
+                    "finished_at": finished_at,
+                    "exit_code": completed.returncode,
+                    "error": None,
+                }
+            )
+    except Exception as exc:  # pragma: no cover - defensive guard for background thread
+        finished_at = _utc_now_iso()
+        with NIGHTLY_JOB_LOCK:
+            NIGHTLY_JOB_STATE.update(
+                {
+                    "running": False,
+                    "status": "failed",
+                    "finished_at": finished_at,
+                    "exit_code": -1,
+                    "error": str(exc),
+                }
+            )
+
+
+def _extract_arxiv_id(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError("arXiv URL is required")
+    parsed = urlparse(raw)
+    candidate = raw
+    if parsed.scheme and parsed.netloc:
+        host = parsed.netloc.lower()
+        if "arxiv.org" not in host:
+            raise ValueError("URL must be from arxiv.org")
+        path = (parsed.path or "").strip("/")
+        if path.startswith("abs/"):
+            candidate = path.split("/", 1)[1]
+        elif path.startswith("pdf/"):
+            candidate = path.split("/", 1)[1]
+        else:
+            candidate = path
+    candidate = candidate.strip()
+    if candidate.lower().startswith("arxiv:"):
+        candidate = candidate.split(":", 1)[1].strip()
+    if candidate.lower().endswith(".pdf"):
+        candidate = candidate[:-4]
+    candidate = candidate.strip("/")
+    if not ARXIV_ID_RE.match(candidate):
+        raise ValueError(f"Could not parse a valid arXiv id from: {value}")
+    return candidate
+
+
+def _fetch_arxiv_entry(arxiv_id: str) -> dict[str, Any]:
+    api_url = f"https://export.arxiv.org/api/query?id_list={quote_plus(arxiv_id)}"
+    response = requests.get(api_url, timeout=20, headers={"User-Agent": "briefbot-dashboard/1.0"})
+    response.raise_for_status()
+    parsed = feedparser.parse(response.content)
+    entries = list(parsed.entries or [])
+    if not entries:
+        raise ValueError(f"No arXiv entry found for id: {arxiv_id}")
+    return dict(entries[0])
+
 app = FastAPI(title="Morning Brief Dashboard API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
@@ -279,6 +455,7 @@ def query_stories(req: StoriesQuery) -> dict[str, Any]:
             source_name=req.source_name,
             from_date=req.from_date,
             to_date=req.to_date,
+            search=req.search,
             limit=req.limit,
             cluster_id=req.cluster_id,
             tags=req.tags,
@@ -394,6 +571,7 @@ def query_stories_get(
     source_name: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    search: str | None = None,
     limit: int = 20,
     cluster_id: str | None = None,
     tags: list[str] | None = None,
@@ -406,6 +584,7 @@ def query_stories_get(
             source_name=source_name,
             from_date=from_date,
             to_date=to_date,
+            search=search,
             limit=limit,
             cluster_id=cluster_id,
             tags=tags or [],
@@ -414,3 +593,124 @@ def query_stories_get(
         )
     finally:
         dao.close()
+
+
+@app.get("/api/jobs/nightly")
+def get_nightly_job_status() -> dict[str, Any]:
+    return _snapshot_nightly_job()
+
+
+@app.post("/api/jobs/nightly")
+def run_nightly_job(req: NightlyRunRequest) -> dict[str, Any]:
+    mode = (req.mode or "standard").strip().lower()
+    if mode not in NIGHTLY_MODES:
+        raise HTTPException(status_code=400, detail=f"Invalid mode '{mode}'. Expected one of: {sorted(NIGHTLY_MODES)}")
+    if not NIGHTLY_SCRIPT.exists():
+        raise HTTPException(status_code=500, detail=f"Nightly script not found: {NIGHTLY_SCRIPT}")
+
+    with NIGHTLY_JOB_LOCK:
+        if NIGHTLY_JOB_STATE.get("running"):
+            active = dict(NIGHTLY_JOB_STATE)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Nightly run already in progress (run_id={active.get('run_id')}, mode={active.get('mode')})",
+            )
+        run_id = str(uuid.uuid4())
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        suffix = "backfill2y" if mode == "arxiv_backfill_2y" else "standard"
+        log_path = LOG_DIR / f"manual-nightly.{stamp}.{suffix}.{run_id[:8]}.log"
+        NIGHTLY_JOB_STATE.update(
+            {
+                "running": True,
+                "status": "running",
+                "run_id": run_id,
+                "mode": mode,
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "exit_code": None,
+                "log_path": str(log_path),
+                "command": ["/bin/bash", str(NIGHTLY_SCRIPT)],
+                "error": None,
+            }
+        )
+
+    thread = threading.Thread(
+        target=_run_nightly_job,
+        args=(run_id, mode, log_path),
+        daemon=True,
+        name=f"dashboard-nightly-{run_id[:8]}",
+    )
+    thread.start()
+    return _snapshot_nightly_job()
+
+
+@app.post("/api/arxiv/import")
+def import_arxiv_paper(req: ArxivImportRequest) -> dict[str, Any]:
+    try:
+        arxiv_id = _extract_arxiv_id(req.url)
+        entry = _fetch_arxiv_entry(arxiv_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch arXiv metadata: {exc}") from exc
+
+    primary_category = entry.get("arxiv_primary_category")
+    if isinstance(primary_category, dict):
+        primary_category = primary_category.get("term")
+    primary_category = (str(primary_category or "").strip() or None)
+    tags = ["papers", "arxiv", "manual"]
+    if primary_category:
+        tags.append(primary_category.lower())
+
+    source = {
+        "id": "arxiv_manual_import",
+        "name": "arXiv Manual Import",
+        "mode": "query",
+        "query": f"id:{arxiv_id}",
+        "tags": tags,
+        "category": "papers",
+        "tier": 1,
+        "max_daily": None,
+        "weight": 1.0,
+    }
+    item = normalize_arxiv_entry(source, entry)
+    watchlist = load_watchlist(WATCHLIST_PATH)
+    watch_hits = match_watchlist(item.get("title"), item.get("summary"), watchlist)
+    item["watch_hits"] = watch_hits
+    if watch_hits:
+        raw = dict(item.get("raw") or {})
+        raw["watch_hits"] = watch_hits
+        item["raw"] = raw
+    item["score"] = compute_score(item, source_weight=float(source.get("weight") or 1.0))
+    opp = compute_opportunity(item)
+    item.update(
+        {
+            "score_opportunity": opp.get("score_opportunity"),
+            "opportunity_reason": opp.get("opportunity_reason"),
+            "opportunity_tags": opp.get("opportunity_tags", []),
+        }
+    )
+    if opp.get("components"):
+        raw = dict(item.get("raw") or {})
+        raw["opportunity_components"] = opp["components"]
+        item["raw"] = raw
+
+    store = Store(DB_PATH)
+    try:
+        upsert_result = store.upsert_item(item)
+    finally:
+        store.close()
+    return {
+        "arxiv_id": arxiv_id,
+        "inserted": bool(upsert_result.inserted),
+        "duplicate": bool(upsert_result.duplicate),
+        "item": {
+            "item_id": item.get("item_id"),
+            "title": item.get("title"),
+            "url": item.get("canonical_url") or item.get("url"),
+            "published_at": item.get("published_at"),
+            "source_name": item.get("source_name"),
+            "tags": item.get("tags") or [],
+        },
+        "note": "Imported into the archive. Cluster/trend sections update after the next collect+cluster run.",
+    }

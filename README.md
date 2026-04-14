@@ -20,7 +20,8 @@ It collects from feeds/APIs, stores all items in SQLite, clusters storylines, ex
   - excerpt + stage-1 JSON caching in SQLite
 - Nightly automation:
   - `briefbot/nightly_briefbot.sh` runs collect/cluster/topics/exports/brief composition
-  - optional Telegram notification when a target is configured
+  - configurable notification backend: `mailgun` (default, no OpenClaw required) or `openclaw` (Telegram)
+- macOS launchd services for persistent dashboard and nightly scheduling
 - `.env` configuration support
 
 ## Setup
@@ -48,10 +49,16 @@ cp .env.example .env
 - `BRIEFBOT_DIGEST_DIR` (optional override for digest output in the nightly script)
 - `BRIEFBOT_LOG_DIR` (optional override for nightly logs)
 - `BRIEFBOT_ENV_FILE` (optional `.env` path)
-- `BRIEFBOT_TELEGRAM_TARGET` (optional Telegram target for nightly notifications)
-- `BRIEFBOT_GREETING_NAME` (optional greeting name in the nightly Telegram message; default `there`)
-- `OPENCLAW_BIN` (optional override for the OpenClaw CLI used by the nightly script)
-- `DASHBOARD_BRIEFS_URL` (optional URL included in the nightly Telegram message)
+- `BRIEFBOT_NOTIFICATION_BACKEND` (default `mailgun`; set to `openclaw` or `none`)
+- `MAILGUN_SENDING_API_KEY` (Mailgun sending key; required when using `mailgun` backend)
+- `MAILGUN_DOMAIN` (Mailgun domain; required when using `mailgun` backend)
+- `MAILGUN_API_BASE` (optional; override to `https://api.eu.mailgun.net/v3` for EU accounts)
+- `BRIEFBOT_EMAIL_TO` (recipient address for nightly email)
+- `BRIEFBOT_EMAIL_FROM` (sender address for nightly email)
+- `BRIEFBOT_TELEGRAM_TARGET` (Telegram target; only used when `BRIEFBOT_NOTIFICATION_BACKEND=openclaw`)
+- `BRIEFBOT_GREETING_NAME` (greeting name in the nightly notification; default `there`)
+- `OPENCLAW_BIN` (optional override for the OpenClaw CLI; only used when `BRIEFBOT_NOTIFICATION_BACKEND=openclaw`)
+- `DASHBOARD_BRIEFS_URL` (URL included in the nightly notification; set to your Tailscale URL)
 - `PROJECT_DIR` (optional override for the nightly script project root)
 - `BRIEFBOT_DATA_DIR` (optional override for the nightly script data root)
 - `VITE_APP_BASE` (optional dashboard frontend base path)
@@ -111,16 +118,48 @@ make nightly-briefbot
 What the nightly script does:
 
 - loads `.env` if present
+- activates `.venv` if present
 - runs `collect`, `cluster`, `topics`
 - exports `balanced`, `trends`, `opportunities`, `followups`, `topics`
 - composes `data/briefs/YYYY-MM-DD.daily.md`
-- optionally sends a Telegram message with the dashboard URL
+- sends a notification with the dashboard URL (channel depends on `BRIEFBOT_NOTIFICATION_BACKEND`)
 
-Telegram behavior:
+Notification behavior:
 
-- if `BRIEFBOT_TELEGRAM_TARGET` is unset, Telegram is skipped without failing the run
-- if `openclaw` is unavailable, Telegram is skipped without failing the run
-- the greeting text uses `BRIEFBOT_GREETING_NAME`, so different users can customize it
+- controlled by `BRIEFBOT_NOTIFICATION_BACKEND` (default: `mailgun`)
+- notifications are skipped gracefully (never fail the run) if credentials are missing
+- `BRIEFBOT_GREETING_NAME` personalizes the notification text
+
+**Mailgun (default — does not require OpenClaw):**
+
+Set in `.env`:
+
+```
+BRIEFBOT_NOTIFICATION_BACKEND=mailgun
+MAILGUN_SENDING_API_KEY=<your sending key>
+MAILGUN_DOMAIN=<your domain>
+BRIEFBOT_EMAIL_TO=you@example.com
+BRIEFBOT_EMAIL_FROM=briefbot@mg.yourdomain.com
+DASHBOARD_BRIEFS_URL=https://your-machine.tail1234.ts.net/briefs
+```
+
+The email subject is `Briefbot: Daily Brief for YYYY-MM-DD` and the body includes the Tailscale dashboard link.
+For Mailgun EU accounts add: `MAILGUN_API_BASE=https://api.eu.mailgun.net/v3`
+
+**OpenClaw / Telegram (server deployments):**
+
+```
+BRIEFBOT_NOTIFICATION_BACKEND=openclaw
+BRIEFBOT_TELEGRAM_TARGET=<chat id or @username>
+OPENCLAW_BIN=openclaw
+DASHBOARD_BRIEFS_URL=https://your-server/briefs
+```
+
+**Disable notifications:**
+
+```
+BRIEFBOT_NOTIFICATION_BACKEND=none
+```
 
 ### Topics
 
@@ -267,46 +306,74 @@ A React + MUI dashboard lives under `dashboard/`. It provides:
 - recent query history persisted in SQLite and replayable without another LLM call
 - a deterministic `Stories` browser with source/cluster/tag/watch-hit/date filters
 
-Backend:
+Default ports (high range to avoid conflicts with local dev):
+
+- Backend: `59001`
+- Frontend: `59000`
+- Local dev (`LOCAL=1`): backend `59101`, frontend `59100`
+
+### Persistent macOS Services (launchd)
+
+The dashboard runs as macOS launchd services so it stays up across terminal sessions, crashes, and reboots. **This does not use OpenClaw.**
+
+**First-time setup:**
 
 ```bash
-uvicorn dashboard.backend.api:app --reload --host 0.0.0.0 --port 8000
+# 1. Build the dashboard
+make deploy-dashboard
+
+# 2. Install and start the persistent services
+make setup-dashboard-service
 ```
 
-Frontend:
+The two services installed are:
+- `com.briefbot.dashboard-api` — uvicorn backend on port `59001`
+- `com.briefbot.dashboard-frontend` — static file server on port `59000`
+
+Both have `KeepAlive=true` and `RunAtLoad=true`, so they start on login and restart automatically if they crash.
+
+**After code changes**, rebuild and the services pick up changes automatically:
 
 ```bash
-cd dashboard
-npm install
-npm run dev
+make deploy-dashboard
 ```
 
-The frontend proxies `/api` to `http://localhost:8000` by default.
-
-The dashboard frontend uses absolute `/api/*` requests. `VITE_API_BASE_URL` should only be set to a full `http(s)` origin. Do not set it to `/briefs` or any other path-only value.
-
-For Tailscale Serve under `/briefs`, use:
-
-- `/briefs` -> frontend
-- `/api` -> backend
-
-The supported production shape is a built frontend served by the included static server, not Vite dev. Tailscale Serve may forward the mounted path with the prefix removed, so the backend also accepts both `/api/*` and stripped aliases like `/metrics` and `/query` for compatibility and logging visibility.
-
-Example runtime split:
+**Stop services:**
 
 ```bash
-uvicorn dashboard.backend.api:app --reload --host 127.0.0.1 --port 8000
-cd dashboard
-VITE_APP_BASE=/briefs/ npm run dev -- --host 127.0.0.1 --port 5173
+make unload-dashboard-service
 ```
 
-Verify backend health:
+**Start services again:**
 
 ```bash
-curl http://127.0.0.1:8000/api/health
-curl http://127.0.0.1:8000/api/queries
-curl http://127.0.0.1:8000/api/stories/sources
-curl http://127.0.0.1:8000/api/stories
+make setup-dashboard-service
+```
+
+**Check status:**
+
+```bash
+launchctl list | grep briefbot
+```
+
+**Tailscale Serve setup** (run once to expose the dashboard on your tailnet):
+
+```bash
+tailscale serve https / http://127.0.0.1:59000
+tailscale serve https /api/ http://127.0.0.1:59001/api/
+tailscale serve status
+```
+
+Then set `DASHBOARD_BRIEFS_URL` in `.env` to your Tailscale URL, e.g.:
+`https://your-machine.tail1234.ts.net/briefs`
+
+**Verify backend health:**
+
+```bash
+curl http://127.0.0.1:59001/api/health
+curl http://127.0.0.1:59001/api/queries
+curl http://127.0.0.1:59001/api/stories/sources
+curl http://127.0.0.1:59001/api/stories
 ```
 
 ### Ask Briefbot
@@ -345,15 +412,15 @@ curl -X POST http://127.0.0.1:8000/api/stories \
   -d '{"source_name":"arXiv","limit":10,"order":"desc"}'
 ```
 
-Single-command deploy:
+**Deploy (build + restart):**
 
 ```bash
 make deploy-dashboard
 ```
 
-This deploys the current local checkout and does not pull from Git by default.
+This deploys the current local checkout and does not pull from Git by default. If launchd services are installed, deploy kicks them to reload the new build. If not, it manages processes via nohup/pid files.
 
-To pull first, use:
+To pull first:
 
 ```bash
 make deploy-dashboard-pull
@@ -364,7 +431,7 @@ This script will:
 - optionally run `git pull --ff-only` when using `make deploy-dashboard-pull`
 - install Python and frontend dependencies
 - build the dashboard with an embedded build SHA/timestamp
-- restart the FastAPI backend and static frontend server
+- restart services (via launchd if installed, otherwise nohup)
 - verify local `/api/health` and `/api/metrics`
 - verify the built bundle still contains `/api/metrics`, `/api/briefs`, and `/api/query`
 - verify the public Tailscale `/api/metrics` and `/briefs` endpoints when a tailnet URL is discoverable

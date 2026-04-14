@@ -40,6 +40,41 @@ TOOLS = {
     },
 }
 
+SUMMARY_PREFIX_RE = re.compile(r"^\s*(please\s+)?(summari[sz]e|summary(?:\s+of)?)\s+", re.I)
+
+
+def _clean_summary_query(query: str) -> str:
+    cleaned = SUMMARY_PREFIX_RE.sub("", (query or "").strip())
+    cleaned = re.sub(r"^\s*(the\s+)?(story|article)\s+", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip().strip("\"'`")
+
+
+def _summary_query_variants(query: str) -> list[str]:
+    raw = (query or "").strip()
+    if not raw:
+        return []
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        candidate = (value or "").strip()
+        if not candidate:
+            return
+        key = candidate.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        variants.append(candidate)
+
+    add(raw)
+    add(_clean_summary_query(raw))
+    for quoted in re.findall(r"\"([^\"]+)\"", raw):
+        add(quoted.strip())
+    if ":" in raw:
+        add(raw.split(":", 1)[1].strip())
+    return variants
+
 
 def _extract_json(text: str) -> dict[str, Any]:
     raw = (text or "").strip()
@@ -180,7 +215,7 @@ class DashboardLLMAdapter:
     def _fallback_plan(self, query: str) -> dict[str, Any]:
         low = query.lower()
         if "summarize " in low or "summarise " in low or low.startswith("summary of "):
-            clean = re.sub(r"^(please\s+)?(summarize|summarise|summary of)\s+", "", query, flags=re.I).strip()
+            clean = _clean_summary_query(query)
             return {"tool": "summarize_article", "arguments": {"query": clean or query}}
         if "all items" in low or "all stories" in low:
             return {"tool": "search_items", "arguments": {"query": "", "days": 30, "limit": 20}}
@@ -195,12 +230,18 @@ class DashboardLLMAdapter:
         return {"tool": "search_items", "arguments": {"query": query, "days": 30, "limit": 20}}
 
     def _summarize_article(self, query: str) -> dict[str, Any]:
-        item = self.dao.find_best_item_for_query(query=query, days=365, limit=25)
+        item = None
+        tried = _summary_query_variants(query)
+        for candidate in tried:
+            item = self.dao.find_best_item_for_query(query=candidate, days=730, limit=160)
+            if item:
+                break
         if not item:
             return {
                 "item": None,
                 "summary_md": "",
                 "error": f"No matching item found for: {query}",
+                "tried_queries": tried,
             }
 
         cache_dir = os.getenv("BRIEFBOT_CACHE_DIR", "data/article_cache").strip() or "data/article_cache"

@@ -4,11 +4,20 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 DASHBOARD_DIR="$PROJECT_DIR/dashboard"
 LOG_DIR="${LOG_DIR:-$PROJECT_DIR/data/logs}"
-API_PORT="${API_PORT:-8000}"
-FRONTEND_PORT="${FRONTEND_PORT:-4173}"
-FRONTEND_BASE="${FRONTEND_BASE:-/briefs/}"
-API_HOST="${API_HOST:-127.0.0.1}"
-FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+LOCAL="${LOCAL:-0}"
+if [ "$LOCAL" = "1" ]; then
+  API_PORT="${API_PORT:-59101}"
+  FRONTEND_PORT="${FRONTEND_PORT:-59100}"
+  FRONTEND_BASE="${FRONTEND_BASE:-/}"
+  API_HOST="${API_HOST:-localhost}"
+  FRONTEND_HOST="${FRONTEND_HOST:-localhost}"
+else
+  API_PORT="${API_PORT:-59001}"
+  FRONTEND_PORT="${FRONTEND_PORT:-59000}"
+  FRONTEND_BASE="${FRONTEND_BASE:-/briefs/}"
+  API_HOST="${API_HOST:-127.0.0.1}"
+  FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+fi
 PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python}"
 PIP_BIN="${PIP_BIN:-$PROJECT_DIR/.venv/bin/pip}"
 UVICORN_BIN="${UVICORN_BIN:-$PROJECT_DIR/.venv/bin/uvicorn}"
@@ -19,7 +28,7 @@ FRONTEND_LOG_FILE="$LOG_DIR/dashboard-frontend.log"
 mkdir -p "$LOG_DIR"
 
 log() {
-  echo "[$(date -Is)] $*"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%S%z)] $*"
 }
 
 kill_pidfile() {
@@ -70,8 +79,8 @@ verify_bundle_strings() {
   local bundle_rel="$1"
   local bundle_path="$DASHBOARD_DIR/dist/${bundle_rel#${FRONTEND_BASE}}"
   [ -f "$bundle_path" ] || { echo "bundle not found: $bundle_path"; return 1; }
-  rg -n '/api/metrics|/api/briefs|/api/query' "$bundle_path" >/dev/null
-  if rg -n '"/metrics"|"/query"' "$bundle_path" >/dev/null; then
+  grep -E '/api/metrics|/api/briefs|/api/query' "$bundle_path" >/dev/null
+  if grep -E '"/metrics"|"/query"' "$bundle_path" >/dev/null; then
     echo "found non-prefixed API endpoint in bundle: $bundle_path"
     return 1
   fi
@@ -98,24 +107,43 @@ log "Installing dashboard frontend dependencies"
 npm --prefix "$DASHBOARD_DIR" install
 
 log "Building dashboard frontend"
-VITE_APP_BASE="$FRONTEND_BASE" VITE_BUILD_SHA="$BUILD_SHA" VITE_BUILD_TIME="$BUILD_TIME" VITE_API_BASE_URL='' npm --prefix "$DASHBOARD_DIR" run build
+if [ "$LOCAL" = "1" ]; then
+  VITE_API_BASE_URL="http://${API_HOST}:${API_PORT}"
+else
+  VITE_API_BASE_URL=''
+fi
+VITE_APP_BASE="$FRONTEND_BASE" VITE_BUILD_SHA="$BUILD_SHA" VITE_BUILD_TIME="$BUILD_TIME" VITE_API_BASE_URL="$VITE_API_BASE_URL" npm --prefix "$DASHBOARD_DIR" run build
 
 BUNDLE_REL="$(extract_bundle_path)"
 log "Built JS bundle: $BUNDLE_REL"
 verify_bundle_strings "$BUNDLE_REL"
 
-kill_pidfile "$BACKEND_PID_FILE"
-kill_pidfile "$FRONTEND_PID_FILE"
+API_LABEL="com.briefbot.dashboard-api"
+FRONTEND_LABEL="com.briefbot.dashboard-frontend"
+LAUNCHD_MANAGED=0
+if launchctl list 2>/dev/null | grep -q "$API_LABEL"; then
+  LAUNCHD_MANAGED=1
+fi
 
-log "Starting dashboard backend on $API_HOST:$API_PORT"
-nohup "$UVICORN_BIN" dashboard.backend.api:app --host "$API_HOST" --port "$API_PORT" >"$BACKEND_LOG_FILE" 2>&1 &
-echo $! > "$BACKEND_PID_FILE"
-sleep 2
+if [ "$LAUNCHD_MANAGED" = "1" ]; then
+  log "Restarting launchd-managed dashboard services"
+  launchctl kickstart -k "gui/$(id -u)/$API_LABEL" 2>/dev/null || launchctl stop "$API_LABEL" && launchctl start "$API_LABEL"
+  launchctl kickstart -k "gui/$(id -u)/$FRONTEND_LABEL" 2>/dev/null || launchctl stop "$FRONTEND_LABEL" && launchctl start "$FRONTEND_LABEL"
+  sleep 2
+else
+  kill_pidfile "$BACKEND_PID_FILE"
+  kill_pidfile "$FRONTEND_PID_FILE"
 
-log "Starting dashboard static frontend on $FRONTEND_HOST:$FRONTEND_PORT"
-nohup "$PYTHON_BIN" -m dashboard.backend.static_server --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --dir "$DASHBOARD_DIR/dist" >"$FRONTEND_LOG_FILE" 2>&1 &
-echo $! > "$FRONTEND_PID_FILE"
-sleep 1
+  log "Starting dashboard backend on $API_HOST:$API_PORT"
+  nohup "$UVICORN_BIN" dashboard.backend.api:app --host "$API_HOST" --port "$API_PORT" >"$BACKEND_LOG_FILE" 2>&1 &
+  echo $! > "$BACKEND_PID_FILE"
+  sleep 2
+
+  log "Starting dashboard static frontend on $FRONTEND_HOST:$FRONTEND_PORT"
+  nohup "$PYTHON_BIN" -m dashboard.backend.static_server --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --dir "$DASHBOARD_DIR/dist" >"$FRONTEND_LOG_FILE" 2>&1 &
+  echo $! > "$FRONTEND_PID_FILE"
+  sleep 1
+fi
 
 log "Verifying local backend"
 curl -fsS "http://$API_HOST:$API_PORT/api/health" >/dev/null
@@ -125,7 +153,10 @@ log "Verifying served HTML references built bundle"
 SERVED_HTML="$(curl -fsS "http://$FRONTEND_HOST:$FRONTEND_PORT/")"
 printf '%s' "$SERVED_HTML" | grep -F "$BUNDLE_REL" >/dev/null
 
-PUBLIC_URL="$(resolve_public_url || true)"
+PUBLIC_URL=""
+if [ "$LOCAL" != "1" ]; then
+  PUBLIC_URL="$(resolve_public_url || true)"
+fi
 if [ -n "$PUBLIC_URL" ]; then
   log "Verifying tailscale public API endpoint: $PUBLIC_URL/api/metrics"
   code="$(curl -ksS -o /dev/null -w '%{http_code}' "$PUBLIC_URL/api/metrics")"
@@ -134,8 +165,8 @@ if [ -n "$PUBLIC_URL" ]; then
   PUBLIC_HTML="$(curl -ksS "$PUBLIC_URL${FRONTEND_BASE%/}")"
   printf '%s' "$PUBLIC_HTML" | grep -F "$BUNDLE_REL" >/dev/null
   log "Verifying public JS bundle contains /api routes"
-  curl -ksS "$PUBLIC_URL$BUNDLE_REL" | rg -n '/api/metrics|/api/briefs|/api/query' >/dev/null
-  if curl -ksS "$PUBLIC_URL$BUNDLE_REL" | rg -n '"/metrics"|"/query"' >/dev/null; then
+  curl -ksS "$PUBLIC_URL$BUNDLE_REL" | grep -E '/api/metrics|/api/briefs|/api/query' >/dev/null
+  if curl -ksS "$PUBLIC_URL$BUNDLE_REL" | grep -E '"/metrics"|"/query"' >/dev/null; then
     echo "public bundle contains non-prefixed API endpoints: $PUBLIC_URL$BUNDLE_REL"
     exit 1
   fi

@@ -20,6 +20,17 @@ import StoryFeedbackList from '../components/StoryFeedbackList'
 import { api } from '../services/api'
 
 const LIMIT_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+const DEFAULT_FILTERS = {
+  source_name: '',
+  from_date: '',
+  to_date: '',
+  search: '',
+  limit: 20,
+  cluster_id: '',
+  tags: [],
+  watch_hits: [],
+  order: 'desc',
+}
 
 function dedupeBy(items, keyFn) {
   const seen = new Set()
@@ -34,6 +45,7 @@ function dedupeBy(items, keyFn) {
 }
 
 function buildHeading(filters, clusters) {
+  if (filters.search) return `Search: ${filters.search}`
   if (filters.source_name) return `Source: ${filters.source_name}`
   if (filters.tags.length) return `Tags: ${filters.tags.join(', ')}`
   if (filters.watch_hits.length) return `Watch hits: ${filters.watch_hits.join(', ')}`
@@ -54,28 +66,20 @@ export default function StoriesPage() {
   const [tags, setTags] = useState([])
   const [watchHits, setWatchHits] = useState([])
   const [results, setResults] = useState([])
-  const [filters, setFilters] = useState({
-    source_name: '',
-    from_date: '',
-    to_date: '',
-    limit: 20,
-    cluster_id: '',
-    tags: [],
-    watch_hits: [],
-    order: 'desc',
-  })
-  const [appliedFilters, setAppliedFilters] = useState({
-    source_name: '',
-    from_date: '',
-    to_date: '',
-    limit: 20,
-    cluster_id: '',
-    tags: [],
-    watch_hits: [],
-    order: 'desc',
-  })
+  const [filters, setFilters] = useState(DEFAULT_FILTERS)
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS)
+  const [nightlyStatus, setNightlyStatus] = useState(null)
+  const [nightlyStarting, setNightlyStarting] = useState(false)
+  const [nightlyWasRunning, setNightlyWasRunning] = useState(false)
+  const [arxivUrl, setArxivUrl] = useState('')
+  const [arxivImportLoading, setArxivImportLoading] = useState(false)
+  const [arxivImportMessage, setArxivImportMessage] = useState('')
+  const [arxivImportError, setArxivImportError] = useState('')
 
   const normalizeMultiValue = (value) => (Array.isArray(value) ? value : String(value).split(',').filter(Boolean))
+  const refreshStoryList = () => {
+    setAppliedFilters((current) => ({ ...current, tags: [...current.tags], watch_hits: [...current.watch_hits] }))
+  }
 
   useEffect(() => {
     async function loadOptions() {
@@ -128,7 +132,76 @@ export default function StoriesPage() {
     }
   }, [appliedFilters])
 
+  useEffect(() => {
+    let cancelled = false
+    const refreshNightlyStatus = async () => {
+      try {
+        const status = await api.getNightlyJobStatus()
+        if (!cancelled) {
+          setNightlyStatus(status)
+        }
+      } catch {
+        // Ignore polling failures in the UI; user can still use stories filters.
+      }
+    }
+    refreshNightlyStatus()
+    const interval = setInterval(refreshNightlyStatus, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!nightlyStatus) return
+    if (nightlyStatus.running) {
+      if (!nightlyWasRunning) {
+        setNightlyWasRunning(true)
+      }
+      return
+    }
+    if (nightlyWasRunning) {
+      refreshStoryList()
+      setNightlyWasRunning(false)
+    }
+  }, [nightlyStatus, nightlyWasRunning])
+
   const heading = useMemo(() => buildHeading(appliedFilters, clusters), [appliedFilters, clusters])
+
+  const handleStartNightly = async (mode) => {
+    try {
+      setNightlyStarting(true)
+      setError('')
+      setArxivImportMessage('')
+      const payload = await api.runNightlyJob({ mode })
+      setNightlyStatus(payload)
+    } catch (err) {
+      setError(err.message || 'Failed to start nightly refresh.')
+    } finally {
+      setNightlyStarting(false)
+    }
+  }
+
+  const handleImportArxiv = async () => {
+    const trimmed = arxivUrl.trim()
+    if (!trimmed) {
+      return
+    }
+    try {
+      setArxivImportLoading(true)
+      setArxivImportError('')
+      setArxivImportMessage('')
+      const payload = await api.importArxivUrl({ url: trimmed })
+      const outcome = payload.inserted ? 'Imported' : 'Already in archive'
+      setArxivImportMessage(`${outcome}: ${payload.item?.title || payload.arxiv_id}`)
+      setArxivUrl('')
+      refreshStoryList()
+    } catch (err) {
+      setArxivImportError(err.message || 'Failed to import arXiv URL.')
+    } finally {
+      setArxivImportLoading(false)
+    }
+  }
 
   return (
     <Stack spacing={3} sx={{ width: '100%', overflowX: 'hidden' }}>
@@ -136,8 +209,62 @@ export default function StoriesPage() {
         <Stack spacing={1}>
           <Typography variant="h5">Stories browser</Typography>
           <Typography color="text.secondary">
-            Deterministic browsing over archived items, with source, cluster, tag, and watch-hit filters.
+            Deterministic browsing over archived items, with source, cluster, tag, watch-hit, and text filters.
           </Typography>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 4 }}>
+        <Stack spacing={2}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Refresh and import</Typography>
+          {nightlyStatus ? (
+            <Typography variant="body2" color="text.secondary">
+              Nightly status: {nightlyStatus.status || (nightlyStatus.running ? 'running' : 'idle')}
+              {nightlyStatus.started_at ? ` · started ${new Date(nightlyStatus.started_at).toLocaleString()}` : ''}
+            </Typography>
+          ) : null}
+          {nightlyStatus?.log_path ? (
+            <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+              Log: {nightlyStatus.log_path}
+            </Typography>
+          ) : null}
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+            <LoadingButton
+              variant="contained"
+              loading={nightlyStarting}
+              onClick={() => handleStartNightly('standard')}
+              disabled={Boolean(nightlyStatus?.running)}
+            >
+              Run nightly refresh
+            </LoadingButton>
+            <LoadingButton
+              variant="outlined"
+              loading={nightlyStarting}
+              onClick={() => handleStartNightly('arxiv_backfill_2y')}
+              disabled={Boolean(nightlyStatus?.running)}
+            >
+              Run arXiv 2Y backfill
+            </LoadingButton>
+          </Stack>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+            <TextField
+              fullWidth
+              label="Import arXiv URL"
+              placeholder="https://arxiv.org/abs/2501.01234"
+              value={arxivUrl}
+              onChange={(event) => setArxivUrl(event.target.value)}
+            />
+            <LoadingButton
+              variant="contained"
+              loading={arxivImportLoading}
+              onClick={handleImportArxiv}
+              disabled={!arxivUrl.trim()}
+            >
+              Add paper
+            </LoadingButton>
+          </Stack>
+          {arxivImportMessage ? <Alert severity="success">{arxivImportMessage}</Alert> : null}
+          {arxivImportError ? <Alert severity="error">{arxivImportError}</Alert> : null}
         </Stack>
       </Paper>
 
@@ -188,6 +315,13 @@ export default function StoriesPage() {
       <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 4 }}>
         <Stack spacing={2}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Filters</Typography>
+          <TextField
+            fullWidth
+            label="Search term"
+            value={filters.search}
+            onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+            placeholder="Search title, summary, source, tags, watch hits, or URL"
+          />
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
               fullWidth

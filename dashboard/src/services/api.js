@@ -25,7 +25,18 @@ async function request(path, options = {}) {
   })
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(text || `Request failed: ${response.status}`)
+    let detail = ''
+    if (text) {
+      try {
+        const payload = JSON.parse(text)
+        if (payload && typeof payload === 'object' && payload.detail) {
+          detail = String(payload.detail)
+        }
+      } catch {
+        // Fall through to raw response body.
+      }
+    }
+    throw new Error(detail || text || `Request failed: ${response.status}`)
   }
   return response.json()
 }
@@ -58,6 +69,9 @@ export const api = {
   },
   setStoryFeedback: (payload) => request('/api/stories/feedback', { method: 'POST', body: JSON.stringify(payload) }),
   resolveStoryLinks: (payload) => request('/api/stories/resolve-links', { method: 'POST', body: JSON.stringify(payload) }),
+  getNightlyJobStatus: () => request('/api/jobs/nightly'),
+  runNightlyJob: (payload = {}) => request('/api/jobs/nightly', { method: 'POST', body: JSON.stringify(payload) }),
+  importArxivUrl: (payload) => request('/api/arxiv/import', { method: 'POST', body: JSON.stringify(payload) }),
   listFavoriteFolders: () => request('/api/favorites/folders'),
   createFavoriteFolder: (payload) => request('/api/favorites/folders', { method: 'POST', body: JSON.stringify(payload) }),
   addFavoriteItem: (payload) => request('/api/favorites/items', { method: 'POST', body: JSON.stringify(payload) }),

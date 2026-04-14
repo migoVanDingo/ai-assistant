@@ -14,6 +14,12 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
+VENV_DIR="$PROJECT_DIR/.venv"
+if [ -f "$VENV_DIR/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  . "$VENV_DIR/bin/activate"
+fi
+
 DATA_DIR="${BRIEFBOT_DATA_DIR:-$PROJECT_DIR/data}"
 # Force the brief output into the project data directory to avoid inherited env ambiguity.
 BRIEF_DIR="$DATA_DIR/briefs"
@@ -29,11 +35,22 @@ export BRIEFBOT_DB_PATH="$DB_PATH"
 export BRIEFBOT_CACHE_DIR="$CACHE_DIR"
 export BRIEFBOT_SUMMARY_DIR="$SUMMARY_DIR"
 
+# Notification backend: mailgun (default), openclaw, or none
+NOTIFICATION_BACKEND="${BRIEFBOT_NOTIFICATION_BACKEND:-mailgun}"
+
+# Mailgun settings (used when NOTIFICATION_BACKEND=mailgun)
+MAILGUN_SENDING_API_KEY="${MAILGUN_SENDING_API_KEY:-}"
+MAILGUN_DOMAIN="${MAILGUN_DOMAIN:-}"
+BRIEFBOT_EMAIL_TO="${BRIEFBOT_EMAIL_TO:-}"
+BRIEFBOT_EMAIL_FROM="${BRIEFBOT_EMAIL_FROM:-briefbot@${MAILGUN_DOMAIN}}"
+
+# OpenClaw / Telegram settings (used when NOTIFICATION_BACKEND=openclaw)
 # Telegram target examples:
 # - chat id (recommended): 123456789
 # - username: @myhandle
 MESSAGE_TARGET="${BRIEFBOT_TELEGRAM_TARGET:-${OPENCLAW_TELEGRAM_TARGET:-${TELEGRAM_TARGET:-}}}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
+
 DASHBOARD_BRIEFS_URL="${DASHBOARD_BRIEFS_URL:-}"
 GREETING_NAME="${BRIEFBOT_GREETING_NAME:-there}"
 
@@ -48,10 +65,42 @@ LOGFILE="$LOG_DIR/nightly.$DATE_STR.log"
 LOCKFILE="$LOG_DIR/nightly.lock"
 
 log() {
-  echo "[$(date -Is)] $*"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%S%z)] $*"
 }
 
-notify() {
+notify_mailgun() {
+  local msg="$1"
+  if [ -z "${MAILGUN_SENDING_API_KEY:-}" ] || [ -z "${MAILGUN_DOMAIN:-}" ]; then
+    log "NOTICE: Mailgun notification skipped; MAILGUN_SENDING_API_KEY or MAILGUN_DOMAIN not set."
+    return 0
+  fi
+  if [ -z "${BRIEFBOT_EMAIL_TO:-}" ]; then
+    log "NOTICE: Mailgun notification skipped; BRIEFBOT_EMAIL_TO not set."
+    return 0
+  fi
+  local from="${BRIEFBOT_EMAIL_FROM:-briefbot@${MAILGUN_DOMAIN}}"
+  local subject="Briefbot: Daily Brief for ${DATE_STR}"
+  local mailgun_base="${MAILGUN_API_BASE:-https://api.mailgun.net/v3}"
+  local response_file
+  response_file="$(mktemp)"
+  log "Sending email notification via Mailgun to ${BRIEFBOT_EMAIL_TO}"
+  local http_code
+  http_code=$(curl -s -o "$response_file" -w "%{http_code}" \
+    --user "api:${MAILGUN_SENDING_API_KEY}" \
+    "${mailgun_base}/${MAILGUN_DOMAIN}/messages" \
+    -F "from=${from}" \
+    -F "to=${BRIEFBOT_EMAIL_TO}" \
+    -F "subject=${subject}" \
+    -F "text=${msg}")
+  if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+    log "Mailgun email sent (HTTP $http_code)"
+  else
+    log "WARNING: Mailgun email failed (HTTP $http_code): $(cat "$response_file")"
+  fi
+  rm -f "$response_file"
+}
+
+notify_openclaw() {
   local msg="$1"
   local output=""
   if [ -z "${MESSAGE_TARGET:-}" ]; then
@@ -75,6 +124,24 @@ notify() {
       echo "$output"
     fi
   fi
+}
+
+notify() {
+  local msg="$1"
+  case "${NOTIFICATION_BACKEND}" in
+    mailgun)
+      notify_mailgun "$msg"
+      ;;
+    openclaw)
+      notify_openclaw "$msg"
+      ;;
+    none)
+      log "NOTICE: Notifications disabled (BRIEFBOT_NOTIFICATION_BACKEND=none)"
+      ;;
+    *)
+      log "WARNING: Unknown BRIEFBOT_NOTIFICATION_BACKEND '${NOTIFICATION_BACKEND}'; skipping notification."
+      ;;
+  esac
 }
 
 on_error() {
@@ -177,11 +244,11 @@ ${DASHBOARD_BRIEFS_URL}"
 }
 
 # Prevent overlap and keep output visible in both console and logfile.
-exec 9>"$LOCKFILE"
-if ! flock -n 9; then
+if ! mkdir "$LOCKFILE" 2>/dev/null; then
   log "Another nightly run is already in progress: $LOCKFILE"
   exit 1
 fi
+trap 'rm -rf "$LOCKFILE"' EXIT
 
 exec > >(tee -a "$LOGFILE") 2>&1
 trap 'on_error "$?"' ERR
