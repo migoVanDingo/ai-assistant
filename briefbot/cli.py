@@ -23,7 +23,7 @@ from .brief import write_daily_brief
 from .cluster import cluster_items_for_window
 from .config import load_config
 from .export import export_daily_digest
-from .llm import summarize as llm_summarize
+from .llm import DEFAULT_ANTHROPIC_MODEL, summarize as llm_summarize
 from .resolve import format_citation, rank_items_for_query, resolve_date, resolve_item_reference
 from .score import compute_score
 from .store import Store
@@ -42,7 +42,7 @@ def _default_provider() -> str:
 
 
 def _default_model() -> str:
-    return os.getenv("BRIEFBOT_LLM_MODEL", "claude-haiku-latest").strip() or "claude-haiku-latest"
+    return os.getenv("BRIEFBOT_LLM_MODEL", DEFAULT_ANTHROPIC_MODEL).strip() or DEFAULT_ANTHROPIC_MODEL
 
 
 def _default_cache_dir() -> str:

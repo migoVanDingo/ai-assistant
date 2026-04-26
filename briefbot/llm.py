@@ -10,25 +10,25 @@ from typing import Any
 
 import requests
 
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+ANTHROPIC_HAIKU_ALIASES = {"claude-haiku", "claude-haiku-latest", "haiku", ""}
+
 
 def _normalize_model(provider: str, model: str) -> str:
     provider = provider.lower()
     model = (model or "").strip()
-    if provider == "anthropic" and model in {"claude-haiku", "claude-haiku-latest", "haiku"}:
-        return "claude-3-5-haiku-latest"
+    if provider == "anthropic" and model in ANTHROPIC_HAIKU_ALIASES:
+        return DEFAULT_ANTHROPIC_MODEL
     if provider == "openai" and model in {"claude-haiku", "haiku", ""}:
         return "gpt-4o-mini"
-    return model or ("claude-haiku-latest" if provider == "anthropic" else "gpt-4o-mini")
+    return model or (DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else "gpt-4o-mini")
 
 
 def _anthropic_model_candidates(model: str) -> list[str]:
     raw = (model or "").strip()
-    if raw in {"", "claude-haiku", "claude-haiku-latest", "haiku"}:
+    if raw in ANTHROPIC_HAIKU_ALIASES:
         return [
-            # Prefer latest/4.5 style first; fall back to 3.5/3.
-            "claude-haiku-latest",
-            "claude-4-5-haiku-latest",
-            "claude-4.5-haiku-latest",
+            DEFAULT_ANTHROPIC_MODEL,
             "claude-3-5-haiku-latest",
             "claude-3-5-haiku-20241022",
             "claude-3-haiku-20240307",
@@ -120,7 +120,7 @@ def _anthropic_summarize(prompt: str, model: str, max_tokens: int = 900, tempera
             return result
         errors.append(f"{candidate_model}: empty response content")
 
-    raise RuntimeError("Anthropic request failed. " + " | ".join(errors[:4]))
+    raise RuntimeError("Anthropic request failed. " + " | ".join(errors))
 
 
 def _openai_summarize(prompt: str, model: str, max_tokens: int = 900, temperature: float = 0.2) -> str:
@@ -156,7 +156,7 @@ def _openai_summarize(prompt: str, model: str, max_tokens: int = 900, temperatur
 def generate_text(
     prompt: str,
     provider: str = "anthropic",
-    model: str = "claude-haiku-latest",
+    model: str = DEFAULT_ANTHROPIC_MODEL,
     max_tokens: int = 900,
     temperature: float = 0.2,
 ) -> str:
@@ -172,7 +172,7 @@ def summarize(
     text: str,
     metadata: dict[str, Any],
     provider: str = "anthropic",
-    model: str = "claude-haiku-latest",
+    model: str = DEFAULT_ANTHROPIC_MODEL,
     max_words: int = 400,
 ) -> str:
     prompt = _prompt(metadata=metadata, text=text, max_words=max_words)

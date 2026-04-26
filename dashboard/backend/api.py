@@ -30,6 +30,7 @@ from briefbot.opportunity import compute_opportunity
 from briefbot.score import compute_score
 from briefbot.store import Store
 from briefbot.watchlist import load_watchlist, match_watchlist
+from briefbot.llm import DEFAULT_ANTHROPIC_MODEL
 
 from .dao import BriefbotDAO, DashboardConfig
 from .llm_adapter import DashboardLLMAdapter
@@ -349,7 +350,9 @@ def query_llm(req: QueryRequest) -> dict[str, Any]:
     dao = get_dao()
     try:
         provider = req.provider or os.getenv("BRIEFBOT_LLM_PROVIDER", "anthropic")
-        model = req.model or os.getenv("BRIEFBOT_MODEL_FOR_SUMMARIES") or os.getenv("BRIEFBOT_LLM_MODEL", "claude-haiku-latest")
+        model = req.model or os.getenv("BRIEFBOT_MODEL_FOR_SUMMARIES") or os.getenv(
+            "BRIEFBOT_LLM_MODEL", DEFAULT_ANTHROPIC_MODEL
+        )
         adapter = DashboardLLMAdapter(
             dao=dao,
             provider=provider,

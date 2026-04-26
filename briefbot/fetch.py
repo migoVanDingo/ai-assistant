@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -28,6 +29,9 @@ HN_ENDPOINTS = {
     "new": "https://hacker-news.firebaseio.com/v0/newstories.json",
     "best": "https://hacker-news.firebaseio.com/v0/beststories.json",
 }
+
+_ARXIV_THROTTLE_LOCK = threading.Lock()
+_ARXIV_LAST_REQUEST_TS = 0.0
 
 
 class FetchError(Exception):
@@ -200,10 +204,59 @@ def _safe_int(value: Any, default: int) -> int:
         return int(default)
 
 
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _arxiv_min_request_interval_s() -> float:
+    raw = os.getenv("BRIEFBOT_ARXIV_MIN_REQUEST_INTERVAL_S", "1.5").strip()
+    return max(0.0, _safe_float(raw, 1.5))
+
+
+def _arxiv_max_attempts() -> int:
+    raw = os.getenv("BRIEFBOT_ARXIV_MAX_ATTEMPTS", "5").strip()
+    return max(1, _safe_int(raw, 5))
+
+
+def _throttle_arxiv_request() -> None:
+    interval_s = _arxiv_min_request_interval_s()
+    if interval_s <= 0:
+        return
+    global _ARXIV_LAST_REQUEST_TS
+    with _ARXIV_THROTTLE_LOCK:
+        now = time.monotonic()
+        wait_s = interval_s - (now - _ARXIV_LAST_REQUEST_TS)
+        if wait_s > 0:
+            time.sleep(wait_s)
+        _ARXIV_LAST_REQUEST_TS = time.monotonic()
+
+
+def _request_arxiv_with_throttle(
+    *,
+    session: requests.Session,
+    url: str,
+    timeout: int,
+    verify_ssl: bool,
+) -> requests.Response:
+    _throttle_arxiv_request()
+    return _request_with_retries(
+        session=session,
+        url=url,
+        timeout=timeout,
+        headers={"User-Agent": "briefbot/1.0"},
+        verify_ssl=verify_ssl,
+        max_attempts=_arxiv_max_attempts(),
+    )
+
+
 def fetch_arxiv_source(
     source: dict[str, Any], session: requests.Session | None = None, timeout: int = 20
 ) -> list[dict[str, Any]]:
     sess = session or requests.Session()
+    verify_ssl = bool(source.get("verify_ssl", True))
     mode = source.get("mode", "category")
     limit = int(source.get("limit", 50))
     lookback_days_raw = source.get("lookback_days")
@@ -239,13 +292,15 @@ def fetch_arxiv_source(
         start = 0
         while len(entries) < max_total:
             api_url = _arxiv_query_api(base_query, page_size, start=start)
-            page_resp = _request_with_retries(
+            page_resp = _request_arxiv_with_throttle(
                 session=sess,
                 url=api_url,
                 timeout=timeout,
-                headers={"User-Agent": "briefbot/1.0"},
-                verify_ssl=bool(source.get("verify_ssl", True)),
+                verify_ssl=verify_ssl,
             )
+            if page_resp.status_code == 429:
+                # Keep partial progress if arXiv starts rate-limiting during deep paging.
+                break
             page_resp.raise_for_status()
             parsed = feedparser.parse(page_resp.content)
             page_entries = list(parsed.entries or [])
@@ -265,13 +320,14 @@ def fetch_arxiv_source(
             start += page_size
         return [normalize_arxiv_entry(source, dict(entry)) for entry in entries]
 
-    resp = _request_with_retries(
+    resp = _request_arxiv_with_throttle(
         session=sess,
         url=url,
         timeout=timeout,
-        headers={"User-Agent": "briefbot/1.0"},
-        verify_ssl=bool(source.get("verify_ssl", True)),
+        verify_ssl=verify_ssl,
     )
+    if resp.status_code == 429:
+        return []
     resp.raise_for_status()
 
     parsed = feedparser.parse(resp.content)
@@ -280,13 +336,14 @@ def fetch_arxiv_source(
     # arXiv category RSS can intermittently return empty payloads; fallback to API query.
     if mode == "category" and len(entries) == 0:
         fallback_url = _arxiv_query_api(fallback_query, limit)
-        fallback_resp = _request_with_retries(
+        fallback_resp = _request_arxiv_with_throttle(
             session=sess,
             url=fallback_url,
             timeout=timeout,
-            headers={"User-Agent": "briefbot/1.0"},
-            verify_ssl=bool(source.get("verify_ssl", True)),
+            verify_ssl=verify_ssl,
         )
+        if fallback_resp.status_code == 429:
+            return [normalize_arxiv_entry(source, dict(entry)) for entry in entries]
         fallback_resp.raise_for_status()
         fallback_parsed = feedparser.parse(fallback_resp.content)
         entries = fallback_parsed.entries[:limit]

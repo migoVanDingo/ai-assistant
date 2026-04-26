@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .article import fetch_article_for_url
-from .llm import generate_text
+from .llm import DEFAULT_ANTHROPIC_MODEL, generate_text
 from .util import stable_hash
 
 SATIRE_DOMAINS = {
@@ -56,7 +56,7 @@ def default_model(model_override: str | None = None) -> str:
     return (
         os.getenv("BRIEFBOT_MODEL_FOR_SUMMARIES")
         or os.getenv("BRIEFBOT_LLM_MODEL")
-        or "claude-haiku-latest"
+        or DEFAULT_ANTHROPIC_MODEL
     ).strip()
 
 

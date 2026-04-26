@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from briefbot.article import get_article_for_item
-from briefbot.llm import generate_text
+from briefbot.llm import DEFAULT_ANTHROPIC_MODEL, generate_text
 from briefbot.llm import summarize as summarize_article_text
 
 from .dao import BriefbotDAO, serialize_rows
@@ -186,7 +186,7 @@ def render_result_markdown(tool_name: str, result: Any) -> str | None:
 
 
 class DashboardLLMAdapter:
-    def __init__(self, dao: BriefbotDAO, provider: str = "anthropic", model: str = "claude-haiku-latest") -> None:
+    def __init__(self, dao: BriefbotDAO, provider: str = "anthropic", model: str = DEFAULT_ANTHROPIC_MODEL) -> None:
         self.dao = dao
         self.provider = provider
         self.model = model

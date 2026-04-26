@@ -40,7 +40,7 @@ cp .env.example .env
 - `BRIEFBOT_CACHE_DIR` (default `data/article_cache`)
 - `BRIEFBOT_SUMMARY_DIR` (default `data/summaries`)
 - `BRIEFBOT_LLM_PROVIDER` (default `anthropic`)
-- `BRIEFBOT_LLM_MODEL` (default `claude-haiku-latest`, falls back to 3.5/3 Haiku aliases)
+- `BRIEFBOT_LLM_MODEL` (default `claude-haiku-4-5-20251001`; `claude-haiku` resolves to the current Haiku ID)
 - `BRIEFBOT_MODEL_FOR_SUMMARIES` (optional override for executive brief synthesis)
 - `BRIEFBOT_ENABLE_EXEC_SUMMARY` (default `true`)
 - `BRIEFBOT_MAX_CHARS_PER_ARTICLE` (default `12000`)
@@ -174,7 +174,7 @@ python -m briefbot topics --date today --window-days 30 --limit 50
 ```bash
 python -m briefbot morning-brief --date today
 python -m briefbot morning-brief --date today --no-exec-summary
-python -m briefbot morning-brief --date today --exec-summary-model claude-haiku-latest
+python -m briefbot morning-brief --date today --exec-summary-model claude-haiku-4-5-20251001
 ```
 
 `morning-brief` runs collect -> cluster -> exports -> writes a single daily markdown brief. By default it adds two executive sections at the top:
