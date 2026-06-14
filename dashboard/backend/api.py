@@ -18,6 +18,7 @@ import feedparser
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -32,6 +33,7 @@ from briefbot.store import Store
 from briefbot.watchlist import load_watchlist, match_watchlist
 from briefbot.llm import DEFAULT_ANTHROPIC_MODEL
 
+from .agent import run_chat_turn
 from .dao import BriefbotDAO, DashboardConfig
 from .llm_adapter import DashboardLLMAdapter
 
@@ -40,6 +42,20 @@ class QueryRequest(BaseModel):
     query: str
     provider: str | None = None
     model: str | None = None
+
+
+class ConversationCreateRequest(BaseModel):
+    title: str | None = None
+
+
+class ChatMessageRequest(BaseModel):
+    content: str = Field(min_length=1)
+    provider: str | None = None
+    model: str | None = None
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: str = Field(min_length=1)
 
 
 class StoriesQuery(BaseModel):
@@ -407,6 +423,117 @@ def get_query(query_id: str) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Query not found")
     return row
+
+
+def _resolve_llm() -> tuple[str, str]:
+    provider = os.getenv("BRIEFBOT_LLM_PROVIDER", "anthropic")
+    model = os.getenv("BRIEFBOT_MODEL_FOR_SUMMARIES") or os.getenv(
+        "BRIEFBOT_LLM_MODEL", DEFAULT_ANTHROPIC_MODEL
+    )
+    return provider, model
+
+
+@app.post("/api/conversations")
+@app.post("/conversations")
+def create_conversation(req: ConversationCreateRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        return dao.create_conversation(req.title)
+    finally:
+        dao.close()
+
+
+@app.get("/api/conversations")
+@app.get("/conversations")
+def list_conversations(limit: int = 100) -> list[dict[str, Any]]:
+    dao = get_dao()
+    try:
+        return dao.list_conversations(limit=limit)
+    finally:
+        dao.close()
+
+
+@app.get("/api/conversations/{conversation_id}")
+@app.get("/conversations/{conversation_id}")
+def get_conversation(conversation_id: str) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        row = dao.get_conversation(conversation_id)
+    finally:
+        dao.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return row
+
+
+@app.patch("/api/conversations/{conversation_id}")
+@app.patch("/conversations/{conversation_id}")
+def rename_conversation(conversation_id: str, req: ConversationUpdateRequest) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        if not dao.get_conversation_meta(conversation_id):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        dao.set_conversation_title(conversation_id, req.title)
+        return dao.get_conversation_meta(conversation_id)
+    finally:
+        dao.close()
+
+
+@app.delete("/api/conversations/{conversation_id}")
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str) -> dict[str, Any]:
+    dao = get_dao()
+    try:
+        removed = dao.delete_conversation(conversation_id)
+    finally:
+        dao.close()
+    if not removed:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"removed": True, "id": conversation_id}
+
+
+@app.post("/api/conversations/{conversation_id}/messages")
+@app.post("/conversations/{conversation_id}/messages")
+def post_conversation_message(conversation_id: str, req: ChatMessageRequest) -> StreamingResponse:
+    # Validate existence up front so we can return a clean 404 before streaming.
+    precheck = get_dao()
+    try:
+        exists = precheck.get_conversation_meta(conversation_id) is not None
+    finally:
+        precheck.close()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    provider = req.provider or _resolve_llm()[0]
+    model = req.model or _resolve_llm()[1]
+    content = req.content
+
+    def event_stream():
+        dao = get_dao()
+        try:
+            for event in run_chat_turn(
+                dao=dao,
+                conversation_id=conversation_id,
+                user_text=content,
+                provider=provider,
+                model=model,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+        except Exception as exc:  # surface failures to the client as an SSE error event
+            logger.exception("chat turn failed for conversation %s", conversation_id)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        finally:
+            dao.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/stories/sources")

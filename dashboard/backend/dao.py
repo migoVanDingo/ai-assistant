@@ -75,6 +75,29 @@ class BriefbotDAO:
             CREATE INDEX IF NOT EXISTS idx_dashboard_queries_created_at
             ON dashboard_queries(created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS dashboard_conversations (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                title TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dashboard_conversations_updated_at
+            ON dashboard_conversations(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS dashboard_conversation_messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                sequence_no INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tool_calls_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_conv
+            ON dashboard_conversation_messages(conversation_id, sequence_no);
+
             CREATE TABLE IF NOT EXISTS dashboard_story_feedback (
                 item_id TEXT PRIMARY KEY,
                 vote INTEGER NOT NULL DEFAULT 0,
@@ -243,6 +266,137 @@ class BriefbotDAO:
         row["tool_args"] = _json_loads(row.pop("tool_args_json", None), {})
         row["tool_result"] = _json_loads(row.pop("tool_result_json", None), None)
         return row
+
+    # ------------------------------------------------------------------
+    # Agent chat conversations
+    # ------------------------------------------------------------------
+    def create_conversation(self, title: str | None = None) -> dict[str, Any]:
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        conversation_id = str(uuid.uuid4())
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_conversations(id, created_at, updated_at, title)
+            VALUES (?, ?, ?, ?)
+            """,
+            (conversation_id, now, now, (title or "").strip() or None),
+        )
+        self.conn.commit()
+        return {
+            "id": conversation_id,
+            "created_at": now,
+            "updated_at": now,
+            "title": (title or "").strip() or None,
+            "message_count": 0,
+        }
+
+    def list_conversations(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self._rows(
+            """
+            SELECT c.id, c.created_at, c.updated_at, c.title,
+                   COUNT(m.id) AS message_count
+            FROM dashboard_conversations c
+            LEFT JOIN dashboard_conversation_messages m ON m.conversation_id = c.id
+            GROUP BY c.id, c.created_at, c.updated_at, c.title
+            ORDER BY datetime(c.updated_at) DESC
+            LIMIT ?
+            """,
+            (max(1, int(limit)),),
+        )
+
+    def get_conversation_meta(self, conversation_id: str) -> dict[str, Any] | None:
+        return self._row(
+            "SELECT id, created_at, updated_at, title FROM dashboard_conversations WHERE id = ?",
+            (conversation_id,),
+        )
+
+    def get_conversation_messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        rows = self._rows(
+            """
+            SELECT id, conversation_id, sequence_no, role, content, tool_calls_json, created_at
+            FROM dashboard_conversation_messages
+            WHERE conversation_id = ?
+            ORDER BY sequence_no ASC
+            """,
+            (conversation_id,),
+        )
+        for row in rows:
+            row["tool_calls"] = _json_loads(row.pop("tool_calls_json", None), [])
+        return rows
+
+    def get_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        meta = self.get_conversation_meta(conversation_id)
+        if not meta:
+            return None
+        meta["messages"] = self.get_conversation_messages(conversation_id)
+        return meta
+
+    def append_message(
+        self,
+        *,
+        conversation_id: str,
+        role: str,
+        content: str,
+        tool_calls: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        message_id = str(uuid.uuid4())
+        next_seq_row = self._row(
+            "SELECT COALESCE(MAX(sequence_no), 0) + 1 AS seq FROM dashboard_conversation_messages WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        sequence_no = int((next_seq_row or {}).get("seq") or 1)
+        self.conn.execute(
+            """
+            INSERT INTO dashboard_conversation_messages(
+                id, conversation_id, sequence_no, role, content, tool_calls_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message_id,
+                conversation_id,
+                sequence_no,
+                role,
+                content,
+                json.dumps(tool_calls) if tool_calls else None,
+                now,
+            ),
+        )
+        self.conn.execute(
+            "UPDATE dashboard_conversations SET updated_at = ? WHERE id = ?",
+            (now, conversation_id),
+        )
+        self.conn.commit()
+        return {
+            "id": message_id,
+            "conversation_id": conversation_id,
+            "sequence_no": sequence_no,
+            "role": role,
+            "content": content,
+            "tool_calls": tool_calls or [],
+            "created_at": now,
+        }
+
+    def set_conversation_title(self, conversation_id: str, title: str) -> None:
+        clean = (title or "").strip()
+        if not clean:
+            return
+        self.conn.execute(
+            "UPDATE dashboard_conversations SET title = ? WHERE id = ?",
+            (clean, conversation_id),
+        )
+        self.conn.commit()
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        cur = self.conn.execute(
+            "DELETE FROM dashboard_conversations WHERE id = ?", (conversation_id,)
+        )
+        self.conn.execute(
+            "DELETE FROM dashboard_conversation_messages WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def get_brief_markdown(self, date_str: str) -> dict[str, Any] | None:
         path = self.briefs_dir / f"{date_str}.daily.md"
@@ -812,6 +966,35 @@ class BriefbotDAO:
             "created_at": now,
             "updated_at": now,
         }
+
+    def delete_favorite_folder(self, name: str) -> dict[str, Any]:
+        trimmed = (name or "").strip()
+        if not trimmed:
+            raise ValueError("folder name is required")
+        if trimmed.lower() == "favorites":
+            raise ValueError("the default 'favorites' folder cannot be deleted")
+        folder = self.get_favorite_folder_by_name(trimmed)
+        if not folder:
+            return {"removed": False, "reason": "not found", "folder": trimmed}
+        folder_id = folder["folder_id"]
+        self.conn.execute("DELETE FROM dashboard_favorite_links WHERE folder_id = ?", (folder_id,))
+        self.conn.execute("DELETE FROM dashboard_favorite_folders WHERE folder_id = ?", (folder_id,))
+        self.conn.commit()
+        return {"removed": True, "folder": trimmed}
+
+    def get_favorite_folder_by_name(self, name: str) -> dict[str, Any] | None:
+        trimmed = (name or "").strip()
+        if not trimmed:
+            return None
+        self._ensure_default_favorites_folder()
+        return self._row(
+            """
+            SELECT folder_id, name, created_at, updated_at
+            FROM dashboard_favorite_folders
+            WHERE lower(name) = lower(?)
+            """,
+            (trimmed,),
+        )
 
     def _resolve_folder_id(self, folder_id: str | None = None) -> str:
         self._ensure_default_favorites_folder()

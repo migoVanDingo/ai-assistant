@@ -24,6 +24,15 @@ It collects from feeds/APIs, stores all items in SQLite, clusters storylines, ex
 - macOS launchd services for persistent dashboard and nightly scheduling
 - `.env` configuration support
 
+## Additional Docs
+
+Integration-oriented docs live in `docs/`:
+
+- `docs/briefbot.md` — ingestion, ranking, clustering, exports, and daily brief generation
+- `docs/dashboard.md` — dashboard frontend/backend, API endpoints, and deploy/runtime notes
+- `docs/database.md` — SQLite schema, query patterns, and read-only connection guidance for other apps
+- `docs/agent-harness-integration.md` — how an external agent harness can integrate with the `/ask` page and LLM/tool flow
+
 ## Setup
 
 ```bash
@@ -403,11 +412,11 @@ Available filters:
 Useful endpoints:
 
 ```bash
-curl http://127.0.0.1:8000/api/stories/sources
-curl http://127.0.0.1:8000/api/stories/clusters
-curl http://127.0.0.1:8000/api/stories/tags
-curl http://127.0.0.1:8000/api/stories/watch-hits
-curl -X POST http://127.0.0.1:8000/api/stories \
+curl http://127.0.0.1:59001/api/stories/sources
+curl http://127.0.0.1:59001/api/stories/clusters
+curl http://127.0.0.1:59001/api/stories/tags
+curl http://127.0.0.1:59001/api/stories/watch-hits
+curl -X POST http://127.0.0.1:59001/api/stories \
   -H 'Content-Type: application/json' \
   -d '{"source_name":"arXiv","limit":10,"order":"desc"}'
 ```

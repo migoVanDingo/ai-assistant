@@ -81,4 +81,47 @@ export const api = {
   },
   removeFavoriteItem: (params = {}) => request(`/api/favorites/items${toQuery(params)}`, { method: 'DELETE' }),
   queryStories: (payload) => request('/api/stories', { method: 'POST', body: JSON.stringify(payload) }),
+  createConversation: (payload = {}) => request('/api/conversations', { method: 'POST', body: JSON.stringify(payload) }),
+  listConversations: (params = {}) => request(`/api/conversations${toQuery({ limit: params.limit })}`),
+  getConversation: (id) => request(`/api/conversations/${id}`),
+  renameConversation: (id, title) =>
+    request(`/api/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  deleteConversation: (id) => request(`/api/conversations/${id}`, { method: 'DELETE' }),
+  async streamChatMessage(conversationId, content, { onEvent, signal } = {}) {
+    const response = await fetch(buildApiUrl(`/api/conversations/${conversationId}/messages`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal,
+    })
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '')
+      throw new Error(text || `Chat request failed: ${response.status}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const flush = (chunk) => {
+      const dataLine = chunk.split('\n').find((line) => line.startsWith('data:'))
+      if (!dataLine) return
+      const payload = dataLine.slice(5).trim()
+      if (!payload) return
+      try {
+        onEvent?.(JSON.parse(payload))
+      } catch {
+        // Ignore malformed SSE frames.
+      }
+    }
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        flush(buffer.slice(0, idx))
+        buffer = buffer.slice(idx + 2)
+      }
+    }
+    if (buffer.trim()) flush(buffer)
+  },
 }
